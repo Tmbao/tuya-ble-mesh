@@ -381,7 +381,67 @@ class TestProvisionerConnect:
                 return_value=mock_client,
             ),
             patch("asyncio.sleep", new_callable=AsyncMock),
-            pytest.raises(ProvisioningError, match="does not expose Provisioning Service"),
+            pytest.raises(ProvisioningError, match="does not expose a PB-GATT"),
+        ):
+            await prov._connect("AA:BB:CC:DD:EE:FF", timeout=1.0, max_retries=1)
+
+    @pytest.mark.asyncio
+    async def test_connect_accepts_telink_mesh_flex_provisioning_bearer(self) -> None:
+        """Mesh Flex 0x7FDD is valid when it contains PB-GATT data characteristics."""
+        prov = SIGMeshProvisioner(b"\x00" * 16, b"\x01" * 16, 0x00B0)
+        mock_device = Mock()
+        mock_client = MagicMock()
+        mock_client.is_connected = True
+        mock_client.connect = AsyncMock()
+        mock_client.mtu_size = 23
+        service = Mock()
+        service.uuid = "00007FDD-0000-1000-8000-00805F9B34FB"
+        data_in = Mock(uuid="00002ADB-0000-1000-8000-00805F9B34FB")
+        data_out = Mock(uuid="00002ADC-0000-1000-8000-00805F9B34FB")
+        service.characteristics = [data_in, data_out]
+        mock_client.get_services = AsyncMock(return_value=[service])
+
+        with (
+            patch(
+                "tuya_ble_mesh.sig_mesh_provisioner_connection.BleakScanner.find_device_by_address",
+                return_value=mock_device,
+            ),
+            patch(
+                "tuya_ble_mesh.sig_mesh_provisioner_connection.BleakClient",
+                return_value=mock_client,
+            ),
+        ):
+            client = await prov._connect("AA:BB:CC:DD:EE:FF", timeout=1.0, max_retries=1)
+
+        assert client is mock_client
+
+    @pytest.mark.asyncio
+    async def test_connect_rejects_mesh_flex_without_pb_gatt_characteristics(self) -> None:
+        """The OTA-only Mesh Flex service is not a provisioning bearer."""
+        prov = SIGMeshProvisioner(b"\x00" * 16, b"\x01" * 16, 0x00B0)
+        mock_device = Mock()
+        mock_client = MagicMock()
+        mock_client.is_connected = True
+        mock_client.connect = AsyncMock()
+        mock_client.mtu_size = 23
+        service = Mock()
+        service.uuid = "00007FDD-0000-1000-8000-00805F9B34FB"
+        service.characteristics = [
+            Mock(uuid="00002ADD-0000-1000-8000-00805F9B34FB"),
+            Mock(uuid="00002ADE-0000-1000-8000-00805F9B34FB"),
+        ]
+        mock_client.get_services = AsyncMock(return_value=[service])
+
+        with (
+            patch(
+                "tuya_ble_mesh.sig_mesh_provisioner_connection.BleakScanner.find_device_by_address",
+                return_value=mock_device,
+            ),
+            patch(
+                "tuya_ble_mesh.sig_mesh_provisioner_connection.BleakClient",
+                return_value=mock_client,
+            ),
+            pytest.raises(ProvisioningError, match="does not expose a PB-GATT"),
         ):
             await prov._connect("AA:BB:CC:DD:EE:FF", timeout=1.0, max_retries=1)
 

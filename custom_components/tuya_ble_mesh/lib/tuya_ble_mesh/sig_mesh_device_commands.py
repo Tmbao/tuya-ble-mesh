@@ -41,6 +41,8 @@ from tuya_ble_mesh.sig_mesh_protocol import (
     config_model_app_bind,
     encrypt_network_pdu,
     generic_onoff_set,
+    light_ctl_set,
+    light_lightness_set,
     make_access_segmented,
     make_access_unsegmented,
     make_proxy_pdu,
@@ -83,6 +85,8 @@ class SIGMeshDeviceCommandsMixin:
     _correlation_id: int
     _segment_lock: asyncio.Lock
     _pending_responses: dict[tuple[int, int], asyncio.Future[bytes]]
+    _lightness_actual: int
+    _ctl_temperature_kelvin: int
 
     async def _next_seq(self) -> int:
         raise NotImplementedError
@@ -236,6 +240,66 @@ class SIGMeshDeviceCommandsMixin:
             seq,
             len(access_payload),
         )
+
+    async def _send_light_access(self, access_payload: bytes, description: str) -> None:
+        """Encrypt and send one unsegmented application-key light command."""
+        if self._client is None or self._keys is None:
+            msg = "Not connected"
+            raise SIGMeshError(msg)
+        app_key = self._keys.app_key
+        if app_key is None:
+            msg = "No application key loaded"
+            raise SIGMeshKeyError(msg)
+
+        seq = await self._next_seq()
+        transport_pdu = make_access_unsegmented(
+            app_key,
+            self._our_addr,
+            self._target_addr,
+            seq,
+            self._keys.iv_index,
+            access_payload,
+            akf=1,
+            aid=self._keys.aid,
+        )
+        network_pdu = encrypt_network_pdu(
+            self._keys.enc_key,
+            self._keys.priv_key,
+            self._keys.nid,
+            ctl=0,
+            ttl=_DEFAULT_TTL,
+            seq=seq,
+            src=self._our_addr,
+            dst=self._target_addr,
+            transport_pdu=transport_pdu,
+            iv_index=self._keys.iv_index,
+        )
+        await self._client.write_gatt_char(
+            SIG_MESH_PROXY_DATA_IN, make_proxy_pdu(network_pdu), response=False
+        )
+        _LOGGER.info("%s sent to 0x%04X (seq=%d)", description, self._target_addr, seq)
+
+    async def send_brightness(self, level: int) -> None:
+        """Set SIG Light Lightness from the integration's 1..100 brightness scale."""
+        clamped = max(0, min(level, 100))
+        actual = 0 if clamped == 0 else round(1 + (clamped - 1) * 65534 / 99)
+        access_payload = light_lightness_set(actual, self._tid)
+        self._tid = (self._tid + 1) & 0xFF
+        await self._send_light_access(access_payload, "Light Lightness Set")
+        self._lightness_actual = actual
+
+    async def send_color_temp(self, temp: int) -> None:
+        """Set SIG Light CTL temperature from the integration's 0..127 scale."""
+        clamped = max(0, min(temp, 127))
+        kelvin = round(2700 + clamped * (6500 - 2700) / 127)
+        access_payload = light_ctl_set(
+            self._lightness_actual,
+            kelvin,
+            self._tid,
+        )
+        self._tid = (self._tid + 1) & 0xFF
+        await self._send_light_access(access_payload, "Light CTL Set")
+        self._ctl_temperature_kelvin = kelvin
 
     async def request_composition_data(self) -> None:
         """Send Config Composition Data Get to retrieve device info.

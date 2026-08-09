@@ -23,7 +23,11 @@ from tuya_ble_mesh.exceptions import MalformedPacketError
 from tuya_ble_mesh.logging_context import MeshLogAdapter
 from tuya_ble_mesh.sig_mesh_protocol import (
     _OPCODE_COMPOSITION_STATUS,
+    OP_LIGHT_CTL_STATUS,
+    OP_LIGHT_CTL_TEMPERATURE_STATUS,
+    OP_LIGHT_LIGHTNESS_STATUS,
     CompositionData,
+    SIGMeshLightStatus,
     decrypt_access_payload,
     decrypt_network_pdu,
     parse_access_opcode,
@@ -83,11 +87,14 @@ class SIGMeshDeviceSegmentsMixin:
     _pending_responses: dict[tuple[int, int], asyncio.Future[bytes]]
     _pending_notify_tasks: set[asyncio.Task[None]]
     _onoff_callbacks: list[Any]
+    _status_callbacks: list[Any]
     _vendor_callbacks: list[Any]
     _composition_callbacks: list[Any]
     _disconnect_callbacks: list[Any]
     _composition: CompositionData | None
     _firmware_version: str | None
+    _lightness_actual: int
+    _ctl_temperature_kelvin: int
 
     def _log_notify_exception(self, task: asyncio.Task[None]) -> None:
         """Log exceptions from notify processing tasks.
@@ -357,6 +364,16 @@ class SIGMeshDeviceSegmentsMixin:
                     raise
                 except Exception:
                     _LOGGER.warning("OnOff callback error", exc_info=True)
+        elif opcode == OP_LIGHT_LIGHTNESS_STATUS and len(params) >= 2:
+            self._lightness_actual = int.from_bytes(params[:2], "little")
+            self._dispatch_light_status(src)
+        elif opcode == OP_LIGHT_CTL_STATUS and len(params) >= 4:
+            self._lightness_actual = int.from_bytes(params[:2], "little")
+            self._ctl_temperature_kelvin = int.from_bytes(params[2:4], "little")
+            self._dispatch_light_status(src)
+        elif opcode == OP_LIGHT_CTL_TEMPERATURE_STATUS and len(params) >= 2:
+            self._ctl_temperature_kelvin = int.from_bytes(params[:2], "little")
+            self._dispatch_light_status(src)
         elif opcode == _OPCODE_COMPOSITION_STATUS:
             self._handle_composition_data(params)
         elif opcode > 0xFFFF:
@@ -381,6 +398,32 @@ class SIGMeshDeviceSegmentsMixin:
                 len(params),
                 src,
             )
+
+    def _dispatch_light_status(self, src: int) -> None:
+        """Convert SIG model values and notify coordinator-compatible callbacks."""
+        brightness = (
+            0
+            if self._lightness_actual == 0
+            else round(1 + (self._lightness_actual - 1) * 99 / 65534)
+        )
+        temperature = round(max(0, min(self._ctl_temperature_kelvin - 2700, 3800)) * 127 / 3800)
+        status = SIGMeshLightStatus(
+            white_brightness=brightness,
+            white_temp=temperature,
+        )
+        _LOGGER.info(
+            "SIG light status from 0x%04X: brightness=%d temperature=%dK",
+            src,
+            brightness,
+            self._ctl_temperature_kelvin,
+        )
+        for callback in list(self._status_callbacks):
+            try:
+                callback(status)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.warning("Light status callback error", exc_info=True)
 
     def _handle_composition_data(self, params: bytes) -> None:
         """Handle a Composition Data Status response.

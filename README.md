@@ -41,6 +41,7 @@ In both modes, Home Assistant itself doesn't need Bluetooth hardware.
 |--------|-------|------|--------|
 | LED Driver 9952126 | Malmbergs | Dimmable LED driver | ✅ Tested — on/off, brightness |
 | Smart Plug S17 | Malmbergs | BLE Mesh relay plug | ✅ Tested — on/off, SIG Mesh provisioned |
+| KBE27CWWT1A/2A/4A, KBB22CWWT1A/2A/4A | Kogan SmarterHome | Tunable-white bulb | 🧪 Mesh Flex support added — hardware verification pending |
 
 ### Potentially Compatible
 

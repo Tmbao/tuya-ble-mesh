@@ -230,6 +230,35 @@ class TestSendVendorCommand:
         assert dev.get_seq() == seq_before + 1
 
 
+class TestSendLightCommands:
+    """Test SIG Light Lightness and CTL command methods."""
+
+    @pytest.mark.asyncio
+    async def test_brightness_writes_lightness_command(self) -> None:
+        dev = _make_device()
+
+        await dev.send_brightness(50)
+
+        dev._client.write_gatt_char.assert_called_once()
+        assert dev._lightness_actual == round(1 + 49 * 65534 / 99)
+
+    @pytest.mark.asyncio
+    async def test_color_temp_writes_ctl_command(self) -> None:
+        dev = _make_device()
+
+        await dev.send_color_temp(127)
+
+        dev._client.write_gatt_char.assert_called_once()
+        assert dev._ctl_temperature_kelvin == 6500
+
+    @pytest.mark.asyncio
+    async def test_light_commands_require_connection(self) -> None:
+        dev = SIGMeshDevice("DC:23:4F:10:52:C4", 0x0001, 0x0010, MagicMock())
+
+        with pytest.raises(SIGMeshError, match="Not connected"):
+            await dev.send_brightness(50)
+
+
 # ---------------------------------------------------------------------------
 # send_config_appkey_add
 # ---------------------------------------------------------------------------

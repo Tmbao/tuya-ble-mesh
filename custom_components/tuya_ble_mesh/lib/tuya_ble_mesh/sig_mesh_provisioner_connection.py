@@ -33,8 +33,35 @@ if TYPE_CHECKING:
 
 _LOGGER = MeshLogAdapter(logging.getLogger(__name__), {})
 
-# PB-GATT Provisioning Service UUID (Mesh Profile 7.1)
+# PB-GATT service and characteristic UUIDs (Mesh Profile 7.1). Telink devices
+# may expose the standard PB-GATT characteristics under Mesh Flex (0x7FDD)
+# instead of the SIG-assigned Provisioning Service (0x1827).
 PROV_SERVICE = "00001827-0000-1000-8000-00805f9b34fb"
+MESH_FLEX_SERVICE = "00007fdd-0000-1000-8000-00805f9b34fb"
+PROV_DATA_IN = "00002adb-0000-1000-8000-00805f9b34fb"
+PROV_DATA_OUT = "00002adc-0000-1000-8000-00805f9b34fb"
+
+
+def _service_characteristic_uuids(service: Any) -> set[str]:
+    """Return normalized characteristic UUIDs exposed by a GATT service."""
+    return {
+        str(characteristic.uuid).lower()
+        for characteristic in getattr(service, "characteristics", [])
+    }
+
+
+def _has_provisioning_service(services: Any) -> bool:
+    """Return whether services expose a valid standard or Mesh Flex PB-GATT bearer."""
+    for service in services:
+        service_uuid = str(service.uuid).lower()
+        if service_uuid == PROV_SERVICE:
+            return True
+        if service_uuid == MESH_FLEX_SERVICE:
+            characteristics = _service_characteristic_uuids(service)
+            if PROV_DATA_IN in characteristics and PROV_DATA_OUT in characteristics:
+                return True
+    return False
+
 
 # Timeout for bluetoothctl subprocess operations (seconds)
 _BLUETOOTHCTL_TIMEOUT = 5.0
@@ -230,8 +257,11 @@ class ProvisionerConnectionMixin:
                         )
                     else:
                         services = client.services
-                    if services and not any(str(s.uuid) == PROV_SERVICE for s in services):
-                        msg = f"Device {address} does not expose Provisioning Service (0x1827)"
+                    if services and not _has_provisioning_service(services):
+                        msg = (
+                            f"Device {address} does not expose a PB-GATT provisioning bearer "
+                            "(0x1827 or Mesh Flex 0x7FDD with 0x2ADB/0x2ADC)"
+                        )
                         raise ProvisioningError(msg)
                 except TimeoutError:
                     _LOGGER.warning("Service enumeration timed out, continuing anyway")

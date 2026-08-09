@@ -31,6 +31,8 @@ from tuya_ble_mesh.sig_mesh_protocol import (
     format_status_response,
     generic_onoff_get,
     generic_onoff_set,
+    light_ctl_set,
+    light_lightness_set,
     make_access_segmented,
     make_access_unsegmented,
     make_proxy_pdu,
@@ -351,6 +353,20 @@ class TestGenericOnOff:
     def test_onoff_get(self) -> None:
         result = generic_onoff_get()
         assert result == b"\x82\x01"
+
+
+class TestLightModels:
+    """Test Light Lightness and Light CTL model messages."""
+
+    def test_lightness_set(self) -> None:
+        assert light_lightness_set(0x1234, tid=7) == b"\x82\x4c\x34\x12\x07"
+
+    def test_ctl_set(self) -> None:
+        assert light_ctl_set(0xFFFF, 4000, tid=8) == (b"\x82\x5e\xff\xff\xa0\x0f\x00\x00\x08")
+
+    def test_ctl_temperature_range_is_validated(self) -> None:
+        with pytest.raises(ProtocolError, match=r"800\.\.20000"):
+            light_ctl_set(0xFFFF, 799)
 
 
 # ============================================================

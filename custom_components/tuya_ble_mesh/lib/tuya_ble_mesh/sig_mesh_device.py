@@ -57,6 +57,7 @@ SIG_MESH_PROXY_DATA_OUT = "00002ade-0000-1000-8000-00805f9b34fb"
 
 # Callback types
 OnOffCallback = Callable[[bool], Any]
+StatusCallback = Callable[[Any], Any]
 VendorCallback = Callable[[int, bytes], Any]
 CompositionCallback = Callable[[CompositionData], Any]
 DisconnectCallback = Callable[[], Any]
@@ -147,6 +148,7 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
         iv_index: int = 0,
         seq_store: SeqStore | None = None,
         ble_device_callback: Any = None,
+        ble_connect_callback: Any = None,
         adapter: str | None = None,
     ) -> None:
         """Initialize a SIG Mesh device interface.
@@ -162,6 +164,8 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
                 If None, uses InMemorySeqStore starting from 0.
             ble_device_callback: Optional callback(address) -> BLEDevice for
                 HA Bluetooth Proxy support. If None, uses BleakScanner.
+            ble_connect_callback: Optional async callback(BLEDevice) -> BleakClient.
+                Home Assistant uses this to route connections through ESPHome proxies.
             adapter: BLE adapter name (e.g. "hci0"). Forces scan and connect
                 via this specific adapter, bypassing HA's habluetooth routing.
         """
@@ -172,6 +176,7 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
         self._op_item_prefix = op_item_prefix
         self._iv_index = iv_index
         self._ble_device_callback = ble_device_callback
+        self._ble_connect_callback = ble_connect_callback
         self._adapter = adapter
 
         self._client: BleakClient | None = None
@@ -183,9 +188,12 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
         self._correlation_id = 0
 
         self._onoff_callbacks: list[OnOffCallback] = []
+        self._status_callbacks: list[StatusCallback] = []
         self._vendor_callbacks: list[VendorCallback] = []
         self._composition_callbacks: list[CompositionCallback] = []
         self._disconnect_callbacks: list[DisconnectCallback] = []
+        self._lightness_actual = 0xFFFF
+        self._ctl_temperature_kelvin = 4000
 
         # Composition Data and firmware version
         self._composition: CompositionData | None = None
@@ -254,6 +262,14 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
     def unregister_onoff_callback(self, callback: OnOffCallback) -> None:
         """Remove a previously registered onoff callback."""
         self._onoff_callbacks.remove(callback)
+
+    def register_status_callback(self, callback: StatusCallback) -> None:
+        """Register a callback for Light Lightness and Light CTL status messages."""
+        self._status_callbacks.append(callback)
+
+    def unregister_status_callback(self, callback: StatusCallback) -> None:
+        """Remove a previously registered light status callback."""
+        self._status_callbacks.remove(callback)
 
     def register_vendor_callback(self, callback: VendorCallback) -> None:
         """Register a callback for Tuya vendor messages."""
@@ -324,14 +340,19 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
                         msg = f"Device {self._address} not found"
                         raise MeshConnectionError(msg)
 
-                    client_kwargs: dict[str, Any] = {
-                        "timeout": timeout,
-                        "disconnected_callback": self._on_ble_disconnect,
-                    }
-                    if self._adapter is not None:
-                        client_kwargs["adapter"] = self._adapter
-                    client = BleakClient(device, **client_kwargs)
-                    await client.connect()
+                    if self._ble_connect_callback is not None:
+                        client = await self._ble_connect_callback(device)
+                        if hasattr(client, "set_disconnected_callback"):
+                            client.set_disconnected_callback(self._on_ble_disconnect)
+                    else:
+                        client_kwargs: dict[str, Any] = {
+                            "timeout": timeout,
+                            "disconnected_callback": self._on_ble_disconnect,
+                        }
+                        if self._adapter is not None:
+                            client_kwargs["adapter"] = self._adapter
+                        client = BleakClient(device, **client_kwargs)
+                        await client.connect()
 
                     # Subscribe to Proxy Data Out notifications
                     try:

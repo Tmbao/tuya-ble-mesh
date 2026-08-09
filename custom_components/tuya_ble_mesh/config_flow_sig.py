@@ -22,6 +22,7 @@ from custom_components.tuya_ble_mesh.const import (
     DEFAULT_BRIDGE_PORT,
     DEFAULT_IV_INDEX,
     DEVICE_TYPE_SIG_BRIDGE_PLUG,
+    DEVICE_TYPE_SIG_LIGHT,
     DEVICE_TYPE_SIG_PLUG,
 )
 
@@ -31,11 +32,15 @@ _UNICAST_PROVISIONER = 0x0001
 _UNICAST_DEVICE_DEFAULT = 0x00B0
 # GenericOnOff Server SIG Model ID
 _MODEL_GENERIC_ONOFF_SERVER = 0x1000
+_MODEL_LIGHT_LIGHTNESS_SERVER = 0x1300
+_MODEL_LIGHT_CTL_SERVER = 0x1303
 # Seconds to wait for device to reboot as Proxy Service after provisioning
 _POST_PROV_REBOOT_DELAY = 6.0
 
 
-async def run_provision(hass: Any, mac: str) -> tuple[str, str, str]:
+async def run_provision(
+    hass: Any, mac: str, device_type: str = DEVICE_TYPE_SIG_PLUG
+) -> tuple[str, str, str]:
     """Generate keys, provision the device, configure application key and model bind.
     Phase 1: PB-GATT provisioning (Service 0x1827).
     Phase 2: Wait for device to reboot into Proxy Service (0x1828).
@@ -159,6 +164,8 @@ async def run_provision(hass: Any, mac: str) -> tuple[str, str, str]:
         DictSecretsManager(secrets_dict),
         op_item_prefix=op_prefix,
         iv_index=DEFAULT_IV_INDEX,
+        ble_device_callback=_ble_device_cb,
+        ble_connect_callback=_ble_connect_cb,
     )
     try:
         await device.connect(timeout=20.0, max_retries=5)
@@ -166,15 +173,17 @@ async def run_provision(hass: Any, mac: str) -> tuple[str, str, str]:
         if not key_add_ok:
             _LOGGER.warning("Application key add returned non-success for %s", mac)
         await asyncio.sleep(0.5)
-        bind_ok = await device.send_config_model_app_bind(
-            _UNICAST_DEVICE_DEFAULT, 0, _MODEL_GENERIC_ONOFF_SERVER
-        )
-        if not bind_ok:
-            _LOGGER.warning(
-                "Model App Bind returned non-success for %s (model=0x%04X)",
-                mac,
-                _MODEL_GENERIC_ONOFF_SERVER,
-            )
+        model_ids = [_MODEL_GENERIC_ONOFF_SERVER]
+        if device_type == DEVICE_TYPE_SIG_LIGHT:
+            model_ids.extend([_MODEL_LIGHT_LIGHTNESS_SERVER, _MODEL_LIGHT_CTL_SERVER])
+        for model_id in model_ids:
+            bind_ok = await device.send_config_model_app_bind(_UNICAST_DEVICE_DEFAULT, 0, model_id)
+            if not bind_ok:
+                _LOGGER.warning(
+                    "Model App Bind returned non-success for %s (model=0x%04X)",
+                    mac,
+                    model_id,
+                )
     except Exception:
         _LOGGER.warning(
             "Post-provisioning config failed for %s",
@@ -202,7 +211,8 @@ async def async_step_sig_plug(flow: Any, user_input: dict[str, Any] | None) -> F
     if user_input is not None and flow._discovery_info is not None:
         mac = flow._discovery_info["address"]
         try:
-            net_key_hex, dev_key_hex, app_key_hex = await run_provision(flow.hass, mac)
+            device_type = flow._discovery_info.get("auto_device_type", DEVICE_TYPE_SIG_PLUG)
+            net_key_hex, dev_key_hex, app_key_hex = await run_provision(flow.hass, mac, device_type)
         except TimeoutError:
             _LOGGER.warning("Provisioning timed out for %s", mac)
             errors["base"] = "timeout"
@@ -247,7 +257,7 @@ async def async_step_sig_plug(flow: Any, user_input: dict[str, Any] | None) -> F
             flow._abort_if_unique_id_configured()
             return flow._finalize_entry(
                 mac=mac,
-                device_type=DEVICE_TYPE_SIG_PLUG,
+                device_type=device_type,
                 unicast_target=f"{_UNICAST_DEVICE_DEFAULT:04X}",
                 unicast_our=f"{_UNICAST_PROVISIONER:04X}",
                 iv_index=DEFAULT_IV_INDEX,

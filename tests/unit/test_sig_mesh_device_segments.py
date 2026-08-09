@@ -344,6 +344,23 @@ class TestDispatchPayloadUnlocked:
         # Future result should still be the original value
         assert future.result() == b"\x99"
 
+    @pytest.mark.asyncio
+    async def test_light_ctl_status_updates_light_callback(self) -> None:
+        dev = _make_device()
+        callback = MagicMock()
+        dev.register_status_callback(callback)
+
+        await dev._dispatch_access_payload_unlocked(
+            0x00B0,
+            0x8260,
+            (32768).to_bytes(2, "little") + (4000).to_bytes(2, "little"),
+        )
+
+        callback.assert_called_once()
+        status = callback.call_args.args[0]
+        assert 49 <= status.white_brightness <= 51
+        assert status.white_temp == round((4000 - 2700) * 127 / 3800)
+
 
 # ---------------------------------------------------------------------------
 # Callback exception handling

@@ -61,7 +61,8 @@ Light entities represent dimmable lights, LED drivers, and smart bulbs.
 
 | Feature | Platform | HA Attribute | Range/Values | Notes |
 |---------|----------|--------------|--------------|-------|
-| **Generic Level** | `light` | `brightness` | 0-100% | Uses SIG Mesh Generic Level Server model |
+| **Light Lightness** | `light` | `brightness` | 0-100% | Uses Light Lightness Server model |
+| **Light CTL** | `light` | `color_temp_kelvin` | 2700-6500 K | Uses Light CTL Server model |
 
 ### Supported Color Modes
 
@@ -69,7 +70,7 @@ Light entities represent dimmable lights, LED drivers, and smart bulbs.
 |------|-------------|----------|-------------|
 | `ColorMode.ONOFF` | ❌ | ✅ | On/Off only (no dimming) |
 | `ColorMode.BRIGHTNESS` | ❌ | ✅ | Dimmable white light |
-| `ColorMode.COLOR_TEMP` | ✅ | ❌ | Color temperature (warm/cool white) |
+| `ColorMode.COLOR_TEMP` | ✅ | ✅ | Color temperature (warm/cool white) |
 | `ColorMode.RGB` | ✅³ | ❌ | Full RGB color control |
 
 ³ RGB mode is supported for Telink Mesh devices but **not validated** on real RGB hardware.
@@ -240,6 +241,8 @@ SIG Mesh devices use **standard Bluetooth Mesh models** instead of Tuya DPs.
 |----------|------------|----------|-------------------|
 | `0x1000` | Generic OnOff Server | Switch, Light | Get, Set, Set Unacknowledged, Status |
 | `0x1002` | Generic Level Server | Light (brightness) | Get, Set, Set Unacknowledged, Status, Delta Set, Move Set |
+| `0x1300` | Light Lightness Server | Light (brightness) | Set, Status |
+| `0x1303` | Light CTL Server | Tunable-white light | Set, Status |
 
 **Generic OnOff Server Operations**:
 - `0x8201` — Generic OnOff Get (query current state)
@@ -259,8 +262,8 @@ SIG Mesh devices use **standard Bluetooth Mesh models** instead of Tuya DPs.
 | Feature | Telink Mesh | SIG Mesh | Notes |
 |---------|-------------|----------|-------|
 | **On/Off Control** | ✅ | ✅ | Both protocols |
-| **Brightness (1-100%)** | ✅ | ✅ | Telink uses DP 122, SIG uses Generic Level |
-| **Color Temperature (CCT)** | ✅ | ❌ | Telink DP 123, SIG Mesh lacks standard CCT model |
+| **Brightness (1-100%)** | ✅ | ✅ | Telink uses DP 122, SIG uses Light Lightness |
+| **Color Temperature (CCT)** | ✅ | ✅ | Telink uses DP 123, SIG uses Light CTL |
 | **RGB Color** | ⚠️ Untested | ❌ | Telink DP 124 exists but untested |
 | **RSSI Monitoring** | ✅ | ✅ | Both protocols |
 | **Firmware Tracking** | ✅ | ✅ | Both protocols (read-only) |

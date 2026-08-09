@@ -16,7 +16,9 @@ from custom_components.tuya_ble_mesh.config_flow_telink import perform_telink_pa
 from custom_components.tuya_ble_mesh.const import (
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_PLUG,
+    DEVICE_TYPE_SIG_LIGHT,
     DEVICE_TYPE_SIG_PLUG,
+    SIG_MESH_FLEX_UUID,
     SIG_MESH_PROV_UUID,
     SIG_MESH_PROXY_UUID,
 )
@@ -137,7 +139,10 @@ async def validate_and_connect(
 
             if device_type is None:
                 # SIG Mesh detection (0x1827 Provisioning or 0x1828 Proxy)
-                if SIG_MESH_PROV_UUID in service_uuids or SIG_MESH_PROXY_UUID in service_uuids:
+                if SIG_MESH_FLEX_UUID in service_uuids:
+                    detected_type = DEVICE_TYPE_SIG_LIGHT
+                    _LOGGER.info("Auto-detected %s as Telink Mesh Flex SIG light", mac)
+                elif SIG_MESH_PROV_UUID in service_uuids or SIG_MESH_PROXY_UUID in service_uuids:
                     detected_type = DEVICE_TYPE_SIG_PLUG
                     _LOGGER.info("Auto-detected %s as SIG Mesh plug", mac)
                 # Telink detection (00010203-... UUID prefix)
@@ -159,14 +164,15 @@ async def validate_and_connect(
             # Step 4: Pairing/provisioning (device-type specific)
             extra_data: dict[str, Any] = {}
 
-            if detected_type == DEVICE_TYPE_SIG_PLUG:
+            if detected_type in (DEVICE_TYPE_SIG_LIGHT, DEVICE_TYPE_SIG_PLUG):
                 # SIG Mesh: full provisioning handled by _run_provision.
                 # Verify the device actually exposes a SIG Mesh service first.
                 if (
                     SIG_MESH_PROV_UUID not in service_uuids
                     and SIG_MESH_PROXY_UUID not in service_uuids
+                    and SIG_MESH_FLEX_UUID not in service_uuids
                 ):
-                    _LOGGER.warning("%s claims to be SIG plug but lacks SIG Mesh services", mac)
+                    _LOGGER.warning("%s claims to be a SIG device but lacks SIG Mesh services", mac)
                     raise ValueError("device_type_mismatch")
                 # Provisioning will be done in async_step_sig_plug (no change to existing flow)
 

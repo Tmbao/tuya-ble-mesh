@@ -3,7 +3,7 @@
 This integration works with **two types** of Tuya BLE Mesh devices:
 
 1. **Telink Proprietary Mesh** — Devices using the Telink firmware stack (service UUID `fe07`, GATT UUID `00010203-0405-0607-0809-0a0b0c0dXXXX`)
-2. **SIG Mesh (Bluetooth Mesh)** — Standard Bluetooth Mesh devices (GATT services `0x1827` Provisioning, `0x1828` Proxy)
+2. **SIG Mesh (Bluetooth Mesh)** — Standard Bluetooth Mesh devices (GATT services `0x1827` Provisioning, `0x1828` Proxy, or Telink Mesh Flex `0x7FDD`)
 
 Both protocols are fully supported and can coexist on the same Home Assistant instance.
 
@@ -15,6 +15,7 @@ Both protocols are fully supported and can coexist on the same Home Assistant in
 | Malmbergs BT Smart | 9917072 | Smart Plug S17 | SIG Mesh | N/A | Power on/off | ✅ Working |
 | Malmbergs BT Smart | 9917071 | Smart Plug S17 | SIG Mesh | N/A | Power on/off | ✅ Expected Working |
 | Malmbergs BT Smart | 9917073 | Smart Plug S17 | SIG Mesh | N/A | Power on/off | ✅ Expected Working |
+| Kogan SmarterHome | KBE27CWWT1A/2A/4A, KBB22CWWT1A/2A/4A | Tunable-white bulb | SIG Mesh (Mesh Flex) | N/A | Power, brightness, color temp | 🧪 Hardware verification pending |
 
 ## Known Compatible Brands
 
@@ -76,6 +77,8 @@ The integration **auto-detects** devices using multiple methods:
 ### SIG Mesh (Bluetooth Mesh)
 - GATT service `0x1827` (Mesh Provisioning Service) present
 - GATT service `0x1828` (Mesh Proxy Service) present
+- Telink Mesh Flex service `0x7FDD` containing PB-GATT `0x2ADB`/`0x2ADC`
+  or Proxy `0x2ADD`/`0x2ADE` characteristics
 - BLE local name starts with `out_of_mesh` (common for unprovisioned devices)
 
 Devices with other names may work via manual MAC address entry during config flow.

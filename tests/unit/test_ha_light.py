@@ -105,6 +105,20 @@ class TestBrightnessToHa:
 
 
 @pytest.mark.requires_ha
+class TestSIGLightCapabilities:
+    """SIG tunable-white lights must not advertise unsupported RGB/effects."""
+
+    def test_exposes_only_color_temperature(self) -> None:
+        coordinator = make_mock_coordinator()
+        coordinator.capabilities.protocol = "SIG_Mesh"
+        light = TuyaBLEMeshLight(coordinator, "entry")
+
+        assert light.supported_color_modes == {ColorMode.COLOR_TEMP}
+        assert light.rgb_color is None
+        assert light.supported_effects == []
+
+
+@pytest.mark.requires_ha
 class TestBrightnessToDevice:
     """Test HA-to-device brightness mapping."""
 

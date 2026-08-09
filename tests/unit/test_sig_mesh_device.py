@@ -123,6 +123,31 @@ class TestSIGMeshDeviceConnect:
         )
 
     @pytest.mark.asyncio
+    async def test_connect_uses_managed_ble_connector(self) -> None:
+        """A caller-supplied connector carries the GATT proxy over HA/ESPHome."""
+        secrets = make_mock_secrets()
+        ble_device = MagicMock()
+        mock_client = MagicMock()
+        mock_client.start_notify = AsyncMock()
+        mock_client.write_gatt_char = AsyncMock()
+        mock_client.is_connected = True
+        mock_client.set_disconnected_callback = MagicMock()
+        connect_callback = AsyncMock(return_value=mock_client)
+        dev = SIGMeshDevice(
+            "DC:23:4D:21:43:A5",
+            0x00AA,
+            0x0001,
+            secrets,
+            ble_device_callback=MagicMock(return_value=ble_device),
+            ble_connect_callback=connect_callback,
+        )
+
+        await dev.connect(max_retries=1)
+
+        connect_callback.assert_awaited_once_with(ble_device)
+        mock_client.set_disconnected_callback.assert_called_once_with(dev._on_ble_disconnect)
+
+    @pytest.mark.asyncio
     async def test_connect_key_failure_raises(self) -> None:
         secrets = MagicMock()
         secrets.get = AsyncMock(side_effect=RuntimeError("1Password unavailable"))

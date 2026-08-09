@@ -25,7 +25,9 @@ from custom_components.tuya_ble_mesh.const import (
     DEFAULT_VENDOR_ID,
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_PLUG,
+    DEVICE_TYPE_SIG_LIGHT,
     DEVICE_TYPE_SIG_PLUG,
+    SIG_MESH_FLEX_UUID,
     SIG_MESH_PROV_UUID,
     SIG_MESH_PROXY_UUID,
 )
@@ -73,7 +75,7 @@ async def async_step_bluetooth(
     # - Other names + ONLY 0x1828 (Proxy) → already provisioned (reject)
     # PLAT-694: After partial provisioning or device removal, plug keeps blinking
     # and may advertise out_of_mesh* + 0x1828. We must accept this for re-discovery.
-    service_uuids = getattr(discovery_info, "service_uuids", [])
+    service_uuids = [uuid.lower() for uuid in getattr(discovery_info, "service_uuids", [])]
 
     # PLAT-736: Reject already-paired Telink mesh devices
     if name.startswith("tymesh"):
@@ -90,7 +92,7 @@ async def async_step_bluetooth(
 
     if not is_s17_plug and not name.startswith("out_of_mesh"):
         # Device name does not indicate pairing mode — check service UUIDs
-        has_prov = SIG_MESH_PROV_UUID in service_uuids
+        has_prov = SIG_MESH_PROV_UUID in service_uuids or SIG_MESH_FLEX_UUID in service_uuids
         has_proxy = SIG_MESH_PROXY_UUID in service_uuids
         if not has_prov and has_proxy:
             # Only Proxy Service (no Provisioning) → already paired device, not pairing mode
@@ -127,16 +129,23 @@ async def async_step_bluetooth(
     # Detect human-readable device category from service UUIDs
     # PLAT-694: Accept both Provisioning (0x1827) and Proxy (0x1828) services
     # PLAT-739: S17* devices are SIG Mesh plugs identified by name, not UUID
+    is_mesh_flex = SIG_MESH_FLEX_UUID in service_uuids
     is_sig_mesh = (
-        is_s17_plug or SIG_MESH_PROV_UUID in service_uuids or SIG_MESH_PROXY_UUID in service_uuids
+        is_s17_plug
+        or SIG_MESH_PROV_UUID in service_uuids
+        or SIG_MESH_PROXY_UUID in service_uuids
+        or is_mesh_flex
     )
-    device_category = "Smart Plug" if is_sig_mesh else "LED Light"
+    device_category = "LED Light" if is_mesh_flex or not is_sig_mesh else "Smart Plug"
     rssi = getattr(discovery_info, "rssi", None)
 
     #  Auto-detect device type based on service UUIDs or name pattern
     auto_device_type = None
 
-    if is_s17_plug:
+    if is_mesh_flex:
+        auto_device_type = DEVICE_TYPE_SIG_LIGHT
+        _LOGGER.info("Telink Mesh Flex SIG light detected: %s (%s)", name, address)
+    elif is_s17_plug:
         # PLAT-739: S17* devices are always SIG Mesh plugs
         auto_device_type = DEVICE_TYPE_SIG_PLUG
         _LOGGER.info("SIG Mesh plug detected via S17* name pattern: %s (%s)", name, address)
@@ -170,7 +179,7 @@ async def async_step_bluetooth(
     # 0x1827 = Provisioning Service (unprovisioned device)
     # 0x1828 = Proxy Service (already provisioned)
     # PLAT-694: Accept both — device may advertise 0x1828 after partial provisioning
-    if auto_device_type == DEVICE_TYPE_SIG_PLUG and is_sig_mesh:
+    if auto_device_type in (DEVICE_TYPE_SIG_LIGHT, DEVICE_TYPE_SIG_PLUG) and is_sig_mesh:
         _LOGGER.info("SIG Mesh device in pairing mode: %s", address)
         # Delegate to SIG plug flow (will be imported from config_flow_sig)
         from custom_components.tuya_ble_mesh.config_flow_sig import async_step_sig_plug

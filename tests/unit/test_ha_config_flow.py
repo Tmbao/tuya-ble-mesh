@@ -49,9 +49,11 @@ from custom_components.tuya_ble_mesh.const import (
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_PLUG,
     DEVICE_TYPE_SIG_BRIDGE_PLUG,
+    DEVICE_TYPE_SIG_LIGHT,
     DEVICE_TYPE_SIG_PLUG,
     DEVICE_TYPE_TELINK_BRIDGE_LIGHT,
     DOMAIN,
+    SIG_MESH_FLEX_UUID,
     SIG_MESH_PROV_UUID,
     SIG_MESH_PROXY_UUID,
 )
@@ -568,6 +570,24 @@ class TestAutoDiscovery:
         assert result["step_id"] == "sig_plug"
         assert flow._discovery_info is not None
         assert flow._discovery_info["address"] == "AA:BB:CC:DD:EE:FF"
+
+    @pytest.mark.asyncio
+    async def test_mesh_flex_discovery_routes_to_sig_light(self) -> None:
+        """Telink Mesh Flex advertising is presented as a tunable-white SIG light."""
+        flow = _make_flow()
+        flow.async_set_unique_id = AsyncMock()
+        flow._abort_if_unique_id_configured = lambda: None
+
+        service_info = MagicMock(spec=BluetoothServiceInfoBleak)
+        service_info.address = "DC:23:4D:2B:D9:7A"
+        service_info.name = "Kogan Mesh Light"
+        service_info.service_uuids = [SIG_MESH_FLEX_UUID]
+
+        result = await flow.async_step_bluetooth(service_info)
+
+        assert result["step_id"] == "sig_plug"
+        assert flow._discovery_info is not None
+        assert flow._discovery_info["auto_device_type"] == DEVICE_TYPE_SIG_LIGHT
 
     @pytest.mark.asyncio
     async def test_discovery_provisioning_completes_full_flow(self) -> None:

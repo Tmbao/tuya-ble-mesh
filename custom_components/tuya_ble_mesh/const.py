@@ -20,6 +20,7 @@ CONF_DEVICE_TYPE = "device_type"
 DEVICE_TYPE_LIGHT = "light"
 DEVICE_TYPE_PLUG = "plug"
 DEVICE_TYPE_SIG_PLUG = "sig_plug"
+DEVICE_TYPE_SIG_LIGHT = "sig_light"
 CONF_MESH_NAME = "mesh_name"
 CONF_MESH_PASSWORD = "mesh_password"  # pragma: allowlist secret
 CONF_MAC_ADDRESS = "mac_address"
@@ -49,13 +50,18 @@ DEVICE_TYPE_SIG_BRIDGE_PLUG = "sig_bridge_plug"
 DEVICE_TYPE_TELINK_BRIDGE_LIGHT = "telink_bridge_light"
 
 PLUG_DEVICE_TYPES = {DEVICE_TYPE_PLUG, DEVICE_TYPE_SIG_PLUG, DEVICE_TYPE_SIG_BRIDGE_PLUG}
-LIGHT_DEVICE_TYPES = {DEVICE_TYPE_LIGHT, DEVICE_TYPE_TELINK_BRIDGE_LIGHT}
+LIGHT_DEVICE_TYPES = {
+    DEVICE_TYPE_LIGHT,
+    DEVICE_TYPE_SIG_LIGHT,
+    DEVICE_TYPE_TELINK_BRIDGE_LIGHT,
+}
 
 # Human-readable model names shown in the HA device registry
 DEVICE_MODEL_NAMES: dict[str, str] = {
     DEVICE_TYPE_LIGHT: "LED Light",
     DEVICE_TYPE_PLUG: "Smart Plug",
     DEVICE_TYPE_SIG_PLUG: "Smart Plug",
+    DEVICE_TYPE_SIG_LIGHT: "Tunable White Light",
     DEVICE_TYPE_SIG_BRIDGE_PLUG: "Smart Plug (Bridge)",
     DEVICE_TYPE_TELINK_BRIDGE_LIGHT: "LED Light (Bridge)",
 }
@@ -63,6 +69,9 @@ DEVICE_MODEL_NAMES: dict[str, str] = {
 # SIG Mesh service UUIDs (Bluetooth SIG assigned)
 SIG_MESH_PROV_UUID = "00001827-0000-1000-8000-00805f9b34fb"  # Provisioning Service
 SIG_MESH_PROXY_UUID = "00001828-0000-1000-8000-00805f9b34fb"  # Proxy Service
+# Telink Mesh Flex service. Depending on provisioning state it contains either
+# the standard PB-GATT (0x2ADB/0x2ADC) or Proxy (0x2ADD/0x2ADE) characteristics.
+SIG_MESH_FLEX_UUID = "00007fdd-0000-1000-8000-00805f9b34fb"
 
 # Brightness mapping: device 1-100 ↔ HA 1-255
 DEVICE_BRIGHTNESS_MIN = 1

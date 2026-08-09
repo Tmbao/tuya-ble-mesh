@@ -282,6 +282,9 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
         """
         super().__init__(coordinator, entry_id, device_info)
         self._attr_unique_id = f"{coordinator.device.address}_light"
+        self._is_sig_light = coordinator.capabilities.protocol == "SIG_Mesh"
+        if self._is_sig_light:
+            self._attr_supported_features = LightEntityFeature.TRANSITION
         self._transition_task: asyncio.Task[None] | None = None
         self._pending_command_task: asyncio.Task[None] | None = None
         # PLAT-756: Semaphore to serialize light transitions and prevent race conditions
@@ -315,6 +318,8 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
     @property
     def rgb_color(self) -> tuple[int, int, int] | None:
         """Return the current RGB color."""
+        if self._is_sig_light:
+            return None
         if not self.coordinator.state.is_on:
             return None
         if self.coordinator.state.mode != 1:
@@ -325,6 +330,8 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
     @property
     def color_mode(self) -> ColorMode:
         """Return the current color mode."""
+        if self._is_sig_light:
+            return ColorMode.COLOR_TEMP
         if self.coordinator.state.mode == 1:
             return ColorMode.RGB
         return ColorMode.COLOR_TEMP
@@ -332,11 +339,15 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
     @property
     def supported_color_modes(self) -> set[ColorMode]:
         """Return supported color modes."""
+        if self._is_sig_light:
+            return {ColorMode.COLOR_TEMP}
         return {ColorMode.COLOR_TEMP, ColorMode.RGB}
 
     @property
     def effect(self) -> str | None:
         """Return the active scene/effect name, or None if no scene is active."""
+        if self._is_sig_light:
+            return None
         scene_id = self.coordinator.state.scene_id
         if scene_id == 0:
             return None
@@ -345,6 +356,8 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
     @property
     def supported_effects(self) -> list[str]:
         """Return list of supported scene/effect names."""
+        if self._is_sig_light:
+            return []
         return list(MESH_SCENES.values())
 
     @property
@@ -356,7 +369,7 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
             (raw device brightness value: 0-255 for RGB, 1-100 for white mode).
         """
         state = self._coordinator.state
-        if state.mode == 1:
+        if state.mode == 1 and not self._is_sig_light:
             return {
                 "brightness_mode": "rgb",
                 "device_brightness": state.color_brightness,
@@ -381,7 +394,7 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
 
         # Handle scene/effect activation immediately (no debounce needed)
         effect: str | None = kwargs.get("effect")
-        if effect is not None:
+        if effect is not None and not self._is_sig_light:
             scene_id = _SCENES_BY_NAME.get(effect)
             if scene_id is not None:
                 await self.coordinator.device.send_scene(scene_id)

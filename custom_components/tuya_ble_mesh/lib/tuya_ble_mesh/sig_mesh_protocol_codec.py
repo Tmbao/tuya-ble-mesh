@@ -69,6 +69,13 @@ OP_GENERIC_ONOFF_GET = 0x8201
 OP_GENERIC_ONOFF_SET = 0x8202
 OP_GENERIC_ONOFF_STATUS = 0x8204
 
+# --- Light Lightness and Light CTL model opcodes (Mesh Model 6.1/6.2) ---
+OP_LIGHT_LIGHTNESS_SET = 0x824C
+OP_LIGHT_LIGHTNESS_STATUS = 0x824E
+OP_LIGHT_CTL_SET = 0x825E
+OP_LIGHT_CTL_STATUS = 0x8260
+OP_LIGHT_CTL_TEMPERATURE_STATUS = 0x8266
+
 # --- Tuya Vendor Model (CID 0x07D0) ---
 TUYA_VENDOR_OPCODE = 0xCDD007
 TUYA_VENDOR_WRITE_ACK = 0xC9D007
@@ -219,6 +226,35 @@ def generic_onoff_get() -> bytes:
     return struct.pack(">H", OP_GENERIC_ONOFF_GET)
 
 
+def light_lightness_set(lightness: int, tid: int = 0) -> bytes:
+    """Light Lightness Set using the 16-bit Actual representation."""
+    if not 0 <= lightness <= 0xFFFF:
+        msg = f"Lightness must be 0..65535, got {lightness}"
+        raise ProtocolError(msg)
+    return struct.pack(">H", OP_LIGHT_LIGHTNESS_SET) + struct.pack("<HB", lightness, tid & 0xFF)
+
+
+def light_ctl_set(
+    lightness: int,
+    temperature: int,
+    tid: int = 0,
+    delta_uv: int = 0,
+) -> bytes:
+    """Light CTL Set for lightness, colour temperature in kelvin, and delta UV."""
+    if not 0 <= lightness <= 0xFFFF:
+        msg = f"Lightness must be 0..65535, got {lightness}"
+        raise ProtocolError(msg)
+    if not 800 <= temperature <= 20000:
+        msg = f"CTL temperature must be 800..20000 K, got {temperature}"
+        raise ProtocolError(msg)
+    if not -32768 <= delta_uv <= 32767:
+        msg = f"delta_uv must be -32768..32767, got {delta_uv}"
+        raise ProtocolError(msg)
+    return struct.pack(">H", OP_LIGHT_CTL_SET) + struct.pack(
+        "<HHhB", lightness, temperature, delta_uv, tid & 0xFF
+    )
+
+
 # ============================================================
 # Access Layer Opcode Parsing (Mesh Profile 3.7.3)
 # ============================================================
@@ -271,6 +307,19 @@ class TuyaVendorFrame:
     command: int
     data: bytes
     dps: list[TuyaVendorDP]
+
+
+@dataclass(frozen=True, slots=True)
+class SIGMeshLightStatus:
+    """SIG light state in the common status shape used by the coordinator."""
+
+    mode: int = 0
+    white_brightness: int = 0
+    white_temp: int = 0
+    red: int = 0
+    green: int = 0
+    blue: int = 0
+    color_brightness: int = 0
 
 
 def parse_tuya_vendor_frame(params: bytes) -> TuyaVendorFrame:

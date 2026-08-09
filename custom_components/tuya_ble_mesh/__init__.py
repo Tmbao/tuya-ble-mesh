@@ -108,6 +108,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: TuyaBLEMeshConfigEntry) 
             _LOGGER.debug("BLE device %s resolved via HA bluetooth stack", address)
         return device
 
+    async def _ble_connect_from_ha(ble_device: Any) -> Any:
+        """Connect using HA's retry connector, including ESPHome BLE proxies."""
+        from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
+
+        return await establish_connection(
+            BleakClientWithServiceCache,
+            ble_device,
+            f"Tuya BLE Mesh {ble_device.address}",
+            max_attempts=5,
+            use_services_cache=True,
+        )
+
     # PLAT-739: Gracefully handle missing provisioning keys for SIG Mesh devices
     try:
         device = create_device(
@@ -115,6 +127,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TuyaBLEMeshConfigEntry) 
             mac_address,
             entry.data,
             ble_device_callback=_ble_device_from_ha,
+            ble_connect_callback=_ble_connect_from_ha,
         )
     except ValueError as exc:
         _LOGGER.error(
