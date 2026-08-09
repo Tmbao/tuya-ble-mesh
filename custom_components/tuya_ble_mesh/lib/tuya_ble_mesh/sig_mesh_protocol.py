@@ -81,6 +81,7 @@ from tuya_ble_mesh.sig_mesh_protocol_codec import (  # noqa: F401  — re-export
     TUYA_VENDOR_WRITE_ACK,
     TUYA_VENDOR_WRITE_UNACK,
     CompositionData,
+    CompositionElement,
     ProxyPDU,
     SegmentHeader,
     SIGMeshLightStatus,

@@ -92,6 +92,7 @@ class SIGMeshDeviceSegmentsMixin:
     _composition_callbacks: list[Any]
     _disconnect_callbacks: list[Any]
     _composition: CompositionData | None
+    _composition_event: asyncio.Event
     _firmware_version: str | None
     _lightness_actual: int
     _ctl_temperature_kelvin: int
@@ -441,6 +442,9 @@ class SIGMeshDeviceSegmentsMixin:
             return
 
         self._composition = comp
+        composition_event = getattr(self, "_composition_event", None)
+        if composition_event is not None:
+            composition_event.set()
         self._firmware_version = f"CID:{comp.cid:04X} PID:{comp.pid:04X} VID:{comp.vid:04X}"
 
         _LOGGER.info(
@@ -449,6 +453,18 @@ class SIGMeshDeviceSegmentsMixin:
             comp.crpl,
             comp.features,
         )
+        for element_index, element in enumerate(getattr(comp, "elements", ())):
+            _LOGGER.info(
+                "Composition element %d: location=0x%04X SIG models=%s vendor models=%s",
+                element_index,
+                element.location,
+                ",".join(f"0x{model_id:04X}" for model_id in element.sig_models) or "none",
+                ",".join(
+                    f"0x{company_id:04X}/0x{model_id:04X}"
+                    for company_id, model_id in element.vendor_models
+                )
+                or "none",
+            )
 
         for callback in list(self._composition_callbacks):
             try:

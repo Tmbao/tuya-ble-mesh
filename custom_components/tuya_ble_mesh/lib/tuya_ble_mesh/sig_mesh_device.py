@@ -197,6 +197,7 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
 
         # Composition Data and firmware version
         self._composition: CompositionData | None = None
+        self._composition_event = asyncio.Event()
         self._firmware_version: str | None = None
 
         # Segmented message reassembly buffers: (src, dst, seq_zero, aid) -> buffer
@@ -286,6 +287,16 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
     def unregister_composition_callback(self, callback: CompositionCallback) -> None:
         """Remove a previously registered composition callback."""
         self._composition_callbacks.remove(callback)
+
+    async def wait_for_composition_data(self, timeout: float = 10.0) -> CompositionData:
+        """Wait for the Composition Data response requested during connection."""
+        if self._composition is not None:
+            return self._composition
+        await asyncio.wait_for(self._composition_event.wait(), timeout=timeout)
+        if self._composition is None:
+            msg = "Composition Data event completed without data"
+            raise SIGMeshError(msg)
+        return self._composition
 
     def register_disconnect_callback(self, callback: DisconnectCallback) -> None:
         """Register a callback for disconnect events."""

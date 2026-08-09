@@ -392,15 +392,25 @@ def _parse_dp_bytes(data: bytes) -> list[TuyaVendorDP]:
 
 
 @dataclass(frozen=True)
+class CompositionElement:
+    """A single Composition Data Page 0 element."""
+
+    location: int
+    sig_models: tuple[int, ...]
+    vendor_models: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
 class CompositionData:
-    """Parsed Composition Data Page 0 header."""
+    """Parsed Composition Data Page 0."""
 
     cid: int  # Company ID
     pid: int  # Product ID
     vid: int  # Version ID
     crpl: int  # Replay protection list size
     features: int  # Features bitmask
-    raw_elements: bytes  # Unparsed element data
+    raw_elements: bytes  # Original encoded element data
+    elements: tuple[CompositionElement, ...] = ()
 
 
 def parse_composition_data(params: bytes) -> CompositionData:
@@ -410,13 +420,50 @@ def parse_composition_data(params: bytes) -> CompositionData:
         raise MalformedPacketError(msg)
 
     data = params[1:]  # Skip page byte
+    raw_elements = data[10:]
+    elements: list[CompositionElement] = []
+    offset = 0
+    while offset < len(raw_elements):
+        if len(raw_elements) - offset < 4:
+            msg = f"Truncated Composition element header at offset {offset}"
+            raise MalformedPacketError(msg)
+
+        location, num_sig, num_vendor = struct.unpack_from("<HBB", raw_elements, offset)
+        offset += 4
+        model_bytes = num_sig * 2 + num_vendor * 4
+        if len(raw_elements) - offset < model_bytes:
+            msg = (
+                f"Truncated Composition element models at offset {offset}: "
+                f"need {model_bytes} bytes, have {len(raw_elements) - offset}"
+            )
+            raise MalformedPacketError(msg)
+
+        sig_models = tuple(
+            struct.unpack_from("<H", raw_elements, offset + model_offset)[0]
+            for model_offset in range(0, num_sig * 2, 2)
+        )
+        offset += num_sig * 2
+        vendor_models = tuple(
+            struct.unpack_from("<HH", raw_elements, offset + model_offset)
+            for model_offset in range(0, num_vendor * 4, 4)
+        )
+        offset += num_vendor * 4
+        elements.append(
+            CompositionElement(
+                location=location,
+                sig_models=sig_models,
+                vendor_models=vendor_models,
+            )
+        )
+
     return CompositionData(
         cid=struct.unpack_from("<H", data, 0)[0],
         pid=struct.unpack_from("<H", data, 2)[0],
         vid=struct.unpack_from("<H", data, 4)[0],
         crpl=struct.unpack_from("<H", data, 6)[0],
         features=struct.unpack_from("<H", data, 8)[0],
-        raw_elements=data[10:],
+        raw_elements=raw_elements,
+        elements=tuple(elements),
     )
 
 

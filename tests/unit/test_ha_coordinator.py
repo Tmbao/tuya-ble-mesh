@@ -7,7 +7,7 @@ import sys
 from dataclasses import replace as dc_replace
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -493,7 +493,7 @@ class TestSeqPersistence:
 
     @pytest.mark.asyncio
     async def test_load_seq_without_stored_data(self) -> None:
-        """_load_seq with no stored data should not call set_seq."""
+        """A fresh store starts above post-provision configuration sequences."""
         device = MagicMock()
         device.address = "DC:23:4D:21:43:A5"
         device.set_seq = MagicMock()
@@ -502,6 +502,7 @@ class TestSeqPersistence:
         mock_hass = MagicMock()
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
 
         coord = TuyaBLEMeshCoordinator(device, hass=mock_hass, entry_id="test_entry")
 
@@ -511,7 +512,8 @@ class TestSeqPersistence:
         ):
             await coord._load_seq()
 
-        device.set_seq.assert_not_called()
+        device.set_seq.assert_called_once_with(_SEQ_SAFETY_MARGIN)
+        mock_store.async_save.assert_awaited_once_with({"seq": _SEQ_SAFETY_MARGIN})
 
     @pytest.mark.asyncio
     async def test_save_seq(self) -> None:
@@ -1242,10 +1244,11 @@ class TestSeqPersistenceExtended:
 
     @pytest.mark.asyncio
     async def test_load_seq_with_empty_dict(self) -> None:
-        """Stored data without 'seq' key should not call set_seq."""
+        """Stored data without 'seq' key is initialized safely."""
         device = _make_sig_mesh_device()
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock(return_value={})
+        mock_store.async_save = AsyncMock()
 
         coord = TuyaBLEMeshCoordinator(device, hass=MagicMock(), entry_id="test_entry")
         with patch(
@@ -1254,7 +1257,8 @@ class TestSeqPersistenceExtended:
         ):
             await coord._load_seq()
 
-        device.set_seq.assert_not_called()
+        device.set_seq.assert_called_once_with(_SEQ_SAFETY_MARGIN)
+        mock_store.async_save.assert_awaited_once_with({"seq": _SEQ_SAFETY_MARGIN})
 
     @pytest.mark.asyncio
     async def test_save_seq_noop_without_get_seq(self) -> None:
@@ -1386,7 +1390,10 @@ class TestLifecycleEdgeCases:
         # Now stop — should call _save_seq
         await coord.async_stop()
 
-        mock_store.async_save.assert_called_once_with({"seq": 1000})
+        assert mock_store.async_save.await_args_list == [
+            call({"seq": _SEQ_SAFETY_MARGIN}),
+            call({"seq": 1000}),
+        ]
 
     @pytest.mark.asyncio
     async def test_on_disconnect_stops_rssi_polling(self) -> None:

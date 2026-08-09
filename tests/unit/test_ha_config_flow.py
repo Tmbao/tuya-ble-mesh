@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 from homeassistant.config_entries import HANDLERS
+from tuya_ble_mesh.exceptions import ProvisioningError
 
 from custom_components.tuya_ble_mesh.config_flow import (
     TuyaBLEMeshConfigFlow,
@@ -57,6 +58,13 @@ from custom_components.tuya_ble_mesh.const import (
     SIG_MESH_PROV_UUID,
     SIG_MESH_PROXY_UUID,
 )
+
+
+def _mock_composition(*sig_model_groups: tuple[int, ...]) -> MagicMock:
+    """Build a minimal parsed Composition Data mock."""
+    return MagicMock(
+        elements=tuple(MagicMock(sig_models=models) for models in sig_model_groups)
+    )
 
 
 def _make_flow() -> TuyaBLEMeshConfigFlow:
@@ -1161,6 +1169,9 @@ class TestRunProvision:
         mock_device = MagicMock()
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
+        mock_device.wait_for_composition_data = AsyncMock(
+            return_value=_mock_composition((0x1000,))
+        )
         mock_device.send_config_app_key_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
@@ -1183,8 +1194,81 @@ class TestRunProvision:
         assert dev_key == _TEST_DEV_KEY
 
     @pytest.mark.asyncio
+    async def test_run_provision_light_binds_models_to_reported_elements(self) -> None:
+        """Light models are bound at the elements reported by Composition Data."""
+        flow = _make_flow()
+        mock_prov_result = MagicMock(
+            dev_key=bytes.fromhex(_TEST_DEV_KEY),
+            num_elements=2,
+        )
+        mock_device = MagicMock()
+        mock_device.connect = AsyncMock()
+        mock_device.disconnect = AsyncMock()
+        mock_device.wait_for_composition_data = AsyncMock(
+            return_value=_mock_composition((0x1000, 0x1300), (0x1303,))
+        )
+        mock_device.send_config_app_key_add = AsyncMock(return_value=True)
+        mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
+
+        with (
+            patch("tuya_ble_mesh.sig_mesh_provisioner.SIGMeshProvisioner") as mock_prov_cls,
+            patch("tuya_ble_mesh.sig_mesh_device.SIGMeshDevice", return_value=mock_device),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_provisioner = MagicMock()
+            mock_provisioner.provision = AsyncMock(return_value=mock_prov_result)
+            mock_prov_cls.return_value = mock_provisioner
+
+            await run_provision(
+                flow.hass,
+                "AA:BB:CC:DD:EE:FF",
+                DEVICE_TYPE_SIG_LIGHT,
+            )
+
+        assert mock_device.send_config_model_app_bind.await_args_list == [
+            call(0x00B0, 0, 0x1000),
+            call(0x00B0, 0, 0x1300),
+            call(0x00B1, 0, 0x1303),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_run_provision_missing_required_model_fails(self) -> None:
+        """A mismatched light composition does not create an unusable entity."""
+        flow = _make_flow()
+        mock_prov_result = MagicMock(
+            dev_key=bytes.fromhex(_TEST_DEV_KEY),
+            num_elements=1,
+        )
+        mock_device = MagicMock()
+        mock_device.connect = AsyncMock()
+        mock_device.disconnect = AsyncMock()
+        mock_device.wait_for_composition_data = AsyncMock(
+            return_value=_mock_composition((0x1000,))
+        )
+        mock_device.send_config_app_key_add = AsyncMock(return_value=True)
+        mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
+
+        with (
+            patch("tuya_ble_mesh.sig_mesh_provisioner.SIGMeshProvisioner") as mock_prov_cls,
+            patch("tuya_ble_mesh.sig_mesh_device.SIGMeshDevice", return_value=mock_device),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_provisioner = MagicMock()
+            mock_provisioner.provision = AsyncMock(return_value=mock_prov_result)
+            mock_prov_cls.return_value = mock_provisioner
+
+            with pytest.raises(ProvisioningError, match=r"0x1300.*absent"):
+                await run_provision(
+                    flow.hass,
+                    "AA:BB:CC:DD:EE:FF",
+                    DEVICE_TYPE_SIG_LIGHT,
+                )
+
+        mock_device.disconnect.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_run_provision_appkey_add_failed(self) -> None:
-        """AppKey add failure is logged but provisioning succeeds."""
+        """AppKey add failure prevents creation of a broken config entry."""
         flow = _make_flow()
 
         mock_prov_result = MagicMock()
@@ -1194,6 +1278,9 @@ class TestRunProvision:
         mock_device = MagicMock()
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
+        mock_device.wait_for_composition_data = AsyncMock(
+            return_value=_mock_composition((0x1000,))
+        )
         mock_device.send_config_app_key_add = AsyncMock(return_value=False)  # FAIL
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
@@ -1206,15 +1293,14 @@ class TestRunProvision:
             mock_provisioner.provision = AsyncMock(return_value=mock_prov_result)
             mock_prov_cls.return_value = mock_provisioner
 
-            net_key, dev_key, _app_key = await run_provision(flow.hass, "AA:BB:CC:DD:EE:FF")
+            with pytest.raises(ProvisioningError, match="Application key add"):
+                await run_provision(flow.hass, "AA:BB:CC:DD:EE:FF")
 
-        # Should still return keys (warning logged)
-        assert len(net_key) == 32
-        assert dev_key == _TEST_DEV_KEY
+        mock_device.disconnect.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_run_provision_model_bind_failed(self) -> None:
-        """Model bind failure is logged but provisioning succeeds."""
+        """Model bind failure prevents creation of a broken config entry."""
         flow = _make_flow()
 
         mock_prov_result = MagicMock()
@@ -1224,6 +1310,9 @@ class TestRunProvision:
         mock_device = MagicMock()
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
+        mock_device.wait_for_composition_data = AsyncMock(
+            return_value=_mock_composition((0x1000,))
+        )
         mock_device.send_config_app_key_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=False)  # FAIL
 
@@ -1236,15 +1325,14 @@ class TestRunProvision:
             mock_provisioner.provision = AsyncMock(return_value=mock_prov_result)
             mock_prov_cls.return_value = mock_provisioner
 
-            net_key, dev_key, _app_key = await run_provision(flow.hass, "AA:BB:CC:DD:EE:FF")
+            with pytest.raises(ProvisioningError, match="Model App Bind"):
+                await run_provision(flow.hass, "AA:BB:CC:DD:EE:FF")
 
-        # Should still return keys
-        assert len(net_key) == 32
-        assert dev_key == _TEST_DEV_KEY
+        mock_device.disconnect.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_run_provision_post_config_exception(self) -> None:
-        """Exception in post-provisioning config is caught and logged."""
+        """Exception in post-provisioning config propagates to the config flow."""
         flow = _make_flow()
 
         mock_prov_result = MagicMock()
@@ -1264,11 +1352,9 @@ class TestRunProvision:
             mock_provisioner.provision = AsyncMock(return_value=mock_prov_result)
             mock_prov_cls.return_value = mock_provisioner
 
-            # Should still return keys despite post-config failure
-            net_key, dev_key, _app_key = await run_provision(flow.hass, "AA:BB:CC:DD:EE:FF")
+            with pytest.raises(Exception, match="connection timeout"):
+                await run_provision(flow.hass, "AA:BB:CC:DD:EE:FF")
 
-        assert len(net_key) == 32
-        assert dev_key == _TEST_DEV_KEY
         mock_device.disconnect.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1283,6 +1369,9 @@ class TestRunProvision:
         mock_device = MagicMock()
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
+        mock_device.wait_for_composition_data = AsyncMock(
+            return_value=_mock_composition((0x1000,))
+        )
         mock_device.send_config_app_key_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
@@ -1357,6 +1446,9 @@ class TestRunProvision:
         mock_device = MagicMock()
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
+        mock_device.wait_for_composition_data = AsyncMock(
+            return_value=_mock_composition((0x1000,))
+        )
         mock_device.send_config_app_key_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 

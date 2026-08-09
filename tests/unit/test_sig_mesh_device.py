@@ -554,6 +554,26 @@ class TestCompositionData:
         assert comp.cid == 0x07D0
 
     @pytest.mark.asyncio
+    async def test_wait_for_composition_data_returns_received_data(self) -> None:
+        """Configuration can await the response requested during connect."""
+        import struct
+
+        dev = self._make_device_with_keys()
+        params = b"\x00" + struct.pack("<HHHHH", 0x07D0, 1, 2, 10, 3)
+        dev._handle_composition_data(params)
+
+        comp = await dev.wait_for_composition_data(timeout=0.1)
+
+        assert comp.cid == 0x07D0
+
+    @pytest.mark.asyncio
+    async def test_wait_for_composition_data_times_out(self) -> None:
+        dev = self._make_device_with_keys()
+
+        with pytest.raises(TimeoutError):
+            await dev.wait_for_composition_data(timeout=0.001)
+
+    @pytest.mark.asyncio
     async def test_dispatch_composition_status_opcode(self) -> None:
         """Opcode 0x02 should route to _handle_composition_data."""
         import struct

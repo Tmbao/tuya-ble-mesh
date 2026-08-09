@@ -761,7 +761,7 @@ class TestParseCompositionData:
         # page=0, CID=0x07D0, PID=0x0001, VID=0x0002, CRPL=10, Features=0x0003
         page = b"\x00"
         header = struct.pack("<HHHHH", 0x07D0, 0x0001, 0x0002, 10, 0x0003)
-        elements = b"\x42\x43\x44"
+        elements = struct.pack("<HBBHHHH", 0x0100, 2, 1, 0x1000, 0x1300, 0x07D0, 0x0001)
         data = page + header + elements
 
         result = parse_composition_data(data)
@@ -772,6 +772,10 @@ class TestParseCompositionData:
         assert result.crpl == 10
         assert result.features == 0x0003
         assert result.raw_elements == elements
+        assert len(result.elements) == 1
+        assert result.elements[0].location == 0x0100
+        assert result.elements[0].sig_models == (0x1000, 0x1300)
+        assert result.elements[0].vendor_models == ((0x07D0, 0x0001),)
 
     def test_too_short_raises(self) -> None:
         with pytest.raises(MalformedPacketError, match="too short"):
@@ -786,3 +790,19 @@ class TestParseCompositionData:
         result = parse_composition_data(data)
         assert result.cid == 0
         assert result.raw_elements == b""
+        assert result.elements == ()
+
+    def test_truncated_element_raises(self) -> None:
+        import struct
+
+        header = struct.pack("<HHHHH", 0, 0, 0, 0, 0)
+        with pytest.raises(MalformedPacketError, match="Truncated Composition element header"):
+            parse_composition_data(b"\x00" + header + b"\x01\x02\x03")
+
+    def test_truncated_model_list_raises(self) -> None:
+        import struct
+
+        header = struct.pack("<HHHHH", 0, 0, 0, 0, 0)
+        element = struct.pack("<HBBH", 0, 2, 0, 0x1000)
+        with pytest.raises(MalformedPacketError, match="Truncated Composition element models"):
+            parse_composition_data(b"\x00" + header + element)

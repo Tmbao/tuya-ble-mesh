@@ -892,6 +892,13 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             _LOGGER.info(
                 "Restored seq=%d (stored=%d + margin=%d)", restored, data["seq"], _SEQ_SAFETY_MARGIN
             )
+        else:
+            self._device.set_seq(_SEQ_SAFETY_MARGIN)
+            await self._seq_store.async_save({"seq": _SEQ_SAFETY_MARGIN})
+            _LOGGER.info(
+                "Initialized fresh SIG Mesh sequence at safety margin %d",
+                _SEQ_SAFETY_MARGIN,
+            )
 
     async def _save_seq(self) -> None:
         if self._seq_store is None or not self.capabilities.has_sig_sequence:

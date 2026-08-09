@@ -51,12 +51,12 @@ async def run_provision(
     Returns:
         Tuple of (net_key_hex, dev_key_hex, app_key_hex).
     Raises:
-        ProvisioningError: If PB-GATT provisioning fails.
-        Any exception from Phase 3 is logged but not re-raised.
+        ProvisioningError: If provisioning or post-provision configuration fails.
     """
     from bleak import BleakClient
     from bleak_retry_connector import establish_connection
     from homeassistant.components import bluetooth as ha_bluetooth
+    from tuya_ble_mesh.exceptions import ProvisioningError  # type: ignore[import-not-found]
     from tuya_ble_mesh.secrets import DictSecretsManager  # type: ignore[import-not-found]
     from tuya_ble_mesh.sig_mesh_device import SIGMeshDevice  # type: ignore[import-not-found]
     from tuya_ble_mesh.sig_mesh_provisioner import (
@@ -169,27 +169,45 @@ async def run_provision(
     )
     try:
         await device.connect(timeout=20.0, max_retries=5)
+        try:
+            composition = await device.wait_for_composition_data(timeout=10.0)
+        except TimeoutError:
+            msg = "Timed out waiting for Composition Data after provisioning"
+            raise ProvisioningError(msg) from None
+
         key_add_ok = await device.send_config_app_key_add(app_key)
         if not key_add_ok:
-            _LOGGER.warning("Application key add returned non-success for %s", mac)
+            msg = "Application key add returned non-success"
+            raise ProvisioningError(msg)
         await asyncio.sleep(0.5)
         model_ids = [_MODEL_GENERIC_ONOFF_SERVER]
         if device_type == DEVICE_TYPE_SIG_LIGHT:
             model_ids.extend([_MODEL_LIGHT_LIGHTNESS_SERVER, _MODEL_LIGHT_CTL_SERVER])
         for model_id in model_ids:
-            bind_ok = await device.send_config_model_app_bind(_UNICAST_DEVICE_DEFAULT, 0, model_id)
+            element_index = next(
+                (
+                    index
+                    for index, element in enumerate(composition.elements)
+                    if model_id in element.sig_models
+                ),
+                None,
+            )
+            if element_index is None:
+                msg = f"Required SIG model 0x{model_id:04X} is absent from Composition Data"
+                raise ProvisioningError(msg)
+            element_addr = _UNICAST_DEVICE_DEFAULT + element_index
+            bind_ok = await device.send_config_model_app_bind(element_addr, 0, model_id)
             if not bind_ok:
-                _LOGGER.warning(
-                    "Model App Bind returned non-success for %s (model=0x%04X)",
-                    mac,
-                    model_id,
+                msg = (
+                    f"Model App Bind returned non-success for model 0x{model_id:04X} "
+                    f"at element 0x{element_addr:04X}"
                 )
-    except Exception:
-        _LOGGER.warning(
-            "Post-provisioning config failed for %s",
-            mac,
-            exc_info=True,
-        )
+                raise ProvisioningError(msg)
+            _LOGGER.info(
+                "Bound SIG model 0x%04X to AppKey index 0 at element 0x%04X",
+                model_id,
+                element_addr,
+            )
     finally:
         await device.disconnect()
     return net_key.hex(), result.dev_key.hex(), app_key.hex()
