@@ -117,6 +117,15 @@ class TestSIGLightCapabilities:
         assert light.rgb_color is None
         assert light.supported_effects == []
 
+    def test_extra_state_attributes_use_public_coordinator(self) -> None:
+        coordinator = make_mock_coordinator(brightness=42)
+        light = TuyaBLEMeshLight(coordinator, "entry")
+
+        assert light.extra_state_attributes == {
+            "brightness_mode": "white",
+            "device_brightness": 42,
+        }
+
 
 @pytest.mark.requires_ha
 class TestBrightnessToDevice:

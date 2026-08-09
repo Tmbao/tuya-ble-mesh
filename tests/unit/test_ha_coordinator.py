@@ -102,6 +102,16 @@ class TestCoordinatorInit:
         coord = TuyaBLEMeshCoordinator(device)
         assert coord.device is device
 
+    def test_dispatch_update_schedules_callback_not_coroutine(self) -> None:
+        device = make_mock_device()
+        hass = MagicMock()
+        coord = TuyaBLEMeshCoordinator(device, hass=hass, entry_id="entry")
+        coord.async_set_updated_data = MagicMock(return_value=None)
+
+        coord._dispatch_update()
+
+        hass.loop.call_soon_threadsafe.assert_called_once_with(coord.async_set_updated_data, None)
+
 
 @pytest.mark.requires_ha
 class TestStatusUpdate:
