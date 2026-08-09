@@ -117,7 +117,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: TuyaBLEMeshConfigEntry) 
             ble_device,
             f"Tuya BLE Mesh {ble_device.address}",
             max_attempts=5,
-            use_services_cache=True,
+            # Mesh Flex changes the characteristics inside 0x7FDD from
+            # provisioning (2ADB/2ADC) to proxy (2ADD/2ADE). A cached
+            # pre-provisioning service table makes the device appear connected
+            # while all proxy writes fail, so SIG runtime connections must
+            # always rediscover GATT services.
+            use_services_cache=False,
         )
 
     # PLAT-739: Gracefully handle missing provisioning keys for SIG Mesh devices

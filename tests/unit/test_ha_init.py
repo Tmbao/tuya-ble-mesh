@@ -339,6 +339,8 @@ class TestAsyncSetupEntrySIGMesh:
         mock_coord.device = mock_device
 
         mock_ble_device = MagicMock()
+        mock_ble_device.address = "BB:BB:CC:CC:DD:DD"
+        mock_client = MagicMock()
 
         with (
             patch(
@@ -353,6 +355,10 @@ class TestAsyncSetupEntrySIGMesh:
                 "homeassistant.components.bluetooth.async_ble_device_from_address",
                 return_value=mock_ble_device,
             ) as mock_ble,
+            patch(
+                "bleak_retry_connector.establish_connection",
+                new=AsyncMock(return_value=mock_client),
+            ) as mock_establish,
         ):
             result = await async_setup_entry(hass, entry)
 
@@ -366,6 +372,13 @@ class TestAsyncSetupEntrySIGMesh:
             # Verify BLE callback was used and returned device
             assert ble_result is mock_ble_device
             assert mock_ble.called
+
+            # Runtime connection must not reuse the PB-GATT service table cached
+            # before this Mesh Flex device switched to GATT Proxy mode.
+            connect_callback = call_kwargs["ble_connect_callback"]
+            connect_result = await connect_callback(mock_ble_device)
+            assert connect_result is mock_client
+            assert mock_establish.await_args.kwargs["use_services_cache"] is False
 
         assert result is True
 
