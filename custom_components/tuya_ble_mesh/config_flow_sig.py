@@ -175,7 +175,7 @@ async def run_provision(
             msg = "Timed out waiting for Composition Data after provisioning"
             raise ProvisioningError(msg) from None
 
-        key_add_ok = await device.send_config_app_key_add(app_key)
+        key_add_ok = await device.send_config_appkey_add(app_key)
         if not key_add_ok:
             msg = "Application key add returned non-success"
             raise ProvisioningError(msg)

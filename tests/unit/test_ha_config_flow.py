@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 from homeassistant.config_entries import HANDLERS
 from tuya_ble_mesh.exceptions import ProvisioningError
+from tuya_ble_mesh.sig_mesh_device import SIGMeshDevice
 
 from custom_components.tuya_ble_mesh.config_flow import (
     TuyaBLEMeshConfigFlow,
@@ -1166,13 +1167,13 @@ class TestRunProvision:
         mock_prov_result.num_elements = 1
 
         # Mock device connection and config
-        mock_device = MagicMock()
+        mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
         mock_device.wait_for_composition_data = AsyncMock(
             return_value=_mock_composition((0x1000,))
         )
-        mock_device.send_config_app_key_add = AsyncMock(return_value=True)
+        mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
         with (
@@ -1201,13 +1202,13 @@ class TestRunProvision:
             dev_key=bytes.fromhex(_TEST_DEV_KEY),
             num_elements=2,
         )
-        mock_device = MagicMock()
+        mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
         mock_device.wait_for_composition_data = AsyncMock(
             return_value=_mock_composition((0x1000, 0x1300), (0x1303,))
         )
-        mock_device.send_config_app_key_add = AsyncMock(return_value=True)
+        mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
         with (
@@ -1239,13 +1240,13 @@ class TestRunProvision:
             dev_key=bytes.fromhex(_TEST_DEV_KEY),
             num_elements=1,
         )
-        mock_device = MagicMock()
+        mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
         mock_device.wait_for_composition_data = AsyncMock(
             return_value=_mock_composition((0x1000,))
         )
-        mock_device.send_config_app_key_add = AsyncMock(return_value=True)
+        mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
         with (
@@ -1275,13 +1276,13 @@ class TestRunProvision:
         mock_prov_result.dev_key = bytes.fromhex(_TEST_DEV_KEY)
         mock_prov_result.num_elements = 1
 
-        mock_device = MagicMock()
+        mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
         mock_device.wait_for_composition_data = AsyncMock(
             return_value=_mock_composition((0x1000,))
         )
-        mock_device.send_config_app_key_add = AsyncMock(return_value=False)  # FAIL
+        mock_device.send_config_appkey_add = AsyncMock(return_value=False)  # FAIL
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
         with (
@@ -1307,13 +1308,13 @@ class TestRunProvision:
         mock_prov_result.dev_key = bytes.fromhex(_TEST_DEV_KEY)
         mock_prov_result.num_elements = 1
 
-        mock_device = MagicMock()
+        mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
         mock_device.wait_for_composition_data = AsyncMock(
             return_value=_mock_composition((0x1000,))
         )
-        mock_device.send_config_app_key_add = AsyncMock(return_value=True)
+        mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=False)  # FAIL
 
         with (
@@ -1339,7 +1340,7 @@ class TestRunProvision:
         mock_prov_result.dev_key = bytes.fromhex(_TEST_DEV_KEY)
         mock_prov_result.num_elements = 1
 
-        mock_device = MagicMock()
+        mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock(side_effect=Exception("connection timeout"))
         mock_device.disconnect = AsyncMock()
 
@@ -1366,13 +1367,13 @@ class TestRunProvision:
         mock_prov_result.dev_key = bytes.fromhex(_TEST_DEV_KEY)
         mock_prov_result.num_elements = 1
 
-        mock_device = MagicMock()
+        mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
         mock_device.wait_for_composition_data = AsyncMock(
             return_value=_mock_composition((0x1000,))
         )
-        mock_device.send_config_app_key_add = AsyncMock(return_value=True)
+        mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
         # Capture the callbacks passed to SIGMeshProvisioner
@@ -1443,13 +1444,13 @@ class TestRunProvision:
         mock_prov_result.dev_key = bytes.fromhex(_TEST_DEV_KEY)
         mock_prov_result.num_elements = 1
 
-        mock_device = MagicMock()
+        mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
         mock_device.wait_for_composition_data = AsyncMock(
             return_value=_mock_composition((0x1000,))
         )
-        mock_device.send_config_app_key_add = AsyncMock(return_value=True)
+        mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
         # Capture the callbacks passed to SIGMeshProvisioner
