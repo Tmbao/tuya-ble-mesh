@@ -359,6 +359,10 @@ class TestAsyncSetupEntrySIGMesh:
                 "bleak_retry_connector.establish_connection",
                 new=AsyncMock(return_value=mock_client),
             ) as mock_establish,
+            patch(
+                "bleak_retry_connector.close_stale_connections_by_address",
+                new=AsyncMock(),
+            ) as mock_close_stale,
         ):
             result = await async_setup_entry(hass, entry)
 
@@ -378,6 +382,7 @@ class TestAsyncSetupEntrySIGMesh:
             connect_callback = call_kwargs["ble_connect_callback"]
             connect_result = await connect_callback(mock_ble_device)
             assert connect_result is mock_client
+            mock_close_stale.assert_awaited_once_with(mock_ble_device.address)
             assert mock_establish.await_args.kwargs["use_services_cache"] is False
 
         assert result is True

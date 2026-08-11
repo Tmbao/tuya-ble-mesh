@@ -63,9 +63,7 @@ from custom_components.tuya_ble_mesh.const import (
 
 def _mock_composition(*sig_model_groups: tuple[int, ...]) -> MagicMock:
     """Build a minimal parsed Composition Data mock."""
-    return MagicMock(
-        elements=tuple(MagicMock(sig_models=models) for models in sig_model_groups)
-    )
+    return MagicMock(elements=tuple(MagicMock(sig_models=models) for models in sig_model_groups))
 
 
 def _make_flow() -> TuyaBLEMeshConfigFlow:
@@ -1170,9 +1168,7 @@ class TestRunProvision:
         mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
-        mock_device.wait_for_composition_data = AsyncMock(
-            return_value=_mock_composition((0x1000,))
-        )
+        mock_device.wait_for_composition_data = AsyncMock(return_value=_mock_composition((0x1000,)))
         mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
@@ -1243,9 +1239,7 @@ class TestRunProvision:
         mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
-        mock_device.wait_for_composition_data = AsyncMock(
-            return_value=_mock_composition((0x1000,))
-        )
+        mock_device.wait_for_composition_data = AsyncMock(return_value=_mock_composition((0x1000,)))
         mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
@@ -1279,9 +1273,7 @@ class TestRunProvision:
         mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
-        mock_device.wait_for_composition_data = AsyncMock(
-            return_value=_mock_composition((0x1000,))
-        )
+        mock_device.wait_for_composition_data = AsyncMock(return_value=_mock_composition((0x1000,)))
         mock_device.send_config_appkey_add = AsyncMock(return_value=False)  # FAIL
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
@@ -1311,9 +1303,7 @@ class TestRunProvision:
         mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
-        mock_device.wait_for_composition_data = AsyncMock(
-            return_value=_mock_composition((0x1000,))
-        )
+        mock_device.wait_for_composition_data = AsyncMock(return_value=_mock_composition((0x1000,)))
         mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=False)  # FAIL
 
@@ -1370,9 +1360,7 @@ class TestRunProvision:
         mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
-        mock_device.wait_for_composition_data = AsyncMock(
-            return_value=_mock_composition((0x1000,))
-        )
+        mock_device.wait_for_composition_data = AsyncMock(return_value=_mock_composition((0x1000,)))
         mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 
@@ -1447,9 +1435,7 @@ class TestRunProvision:
         mock_device = MagicMock(spec=SIGMeshDevice)
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
-        mock_device.wait_for_composition_data = AsyncMock(
-            return_value=_mock_composition((0x1000,))
-        )
+        mock_device.wait_for_composition_data = AsyncMock(return_value=_mock_composition((0x1000,)))
         mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
 

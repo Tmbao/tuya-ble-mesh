@@ -10,6 +10,7 @@ scattered across coordinator, sensor, and diagnostics.
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,6 +26,8 @@ class DeviceCapabilities:
             (SIGMeshDevice, SIGMeshBridgeDevice).
         has_vendor_callback: True for SIG Mesh devices.
         has_composition_callback: True for SIG Mesh devices.
+        has_mesh_probe: True when a device can request fresh Composition Data
+            to verify the complete BLE and mesh path.
         has_sig_sequence: True when the device exposes ``set_seq``/``get_seq``
             for sequence-number persistence (SIG Mesh direct only).
         has_light_control: True when ``device.send_brightness`` exists,
@@ -39,6 +42,7 @@ class DeviceCapabilities:
     has_onoff_callback: bool
     has_vendor_callback: bool
     has_composition_callback: bool
+    has_mesh_probe: bool
     has_sig_sequence: bool
     has_light_control: bool
     has_power_monitoring: bool
@@ -63,6 +67,9 @@ class DeviceCapabilities:
             has_onoff_callback=hasattr(device, "register_onoff_callback"),
             has_vendor_callback=hasattr(device, "register_vendor_callback"),
             has_composition_callback=hasattr(device, "register_composition_callback"),
+            has_mesh_probe=inspect.iscoroutinefunction(
+                getattr(device, "request_composition_data", None)
+            ),
             has_sig_sequence=hasattr(device, "set_seq") and hasattr(device, "get_seq"),
             has_light_control=hasattr(device, "send_brightness"),
             has_power_monitoring=bool(getattr(device, "supports_power_monitoring", False)),

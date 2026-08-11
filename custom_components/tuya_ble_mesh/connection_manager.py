@@ -289,8 +289,12 @@ class ConnectionManager:
         except RuntimeError:
             return
 
-        if self._reconnect_task is not None:
-            self._reconnect_task.cancel()
+        if self._reconnect_task is not None and not self._reconnect_task.done():
+            _LOGGER.debug(
+                "Reconnect already scheduled for %s; coalescing disconnect",
+                self._device.address,
+            )
+            return
 
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
         self._reconnect_task.add_done_callback(self._log_task_exception)
@@ -344,6 +348,9 @@ class ConnectionManager:
             try:
                 start_time = time.monotonic()
                 await self._device.connect()
+                if not getattr(self._device, "is_connected", True):
+                    msg = f"{self._device.address} disconnected during reconnect"
+                    raise ConnectionError(msg)
                 response_time = time.monotonic() - start_time
                 self._stats.response_times.append(response_time)
                 self._stats.connect_time = time.time()
@@ -367,8 +374,6 @@ class ConnectionManager:
                     self.start_rssi_polling()
                 return
             except Exception as err:
-                if isinstance(err, (AttributeError, TypeError, NameError)):
-                    raise  # Programming error — not a transient connection failure
                 self._stats.total_errors += 1
                 self._stats.connection_errors += 1
                 self._stats.last_error = str(err)

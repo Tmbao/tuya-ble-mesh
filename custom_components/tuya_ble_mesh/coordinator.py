@@ -47,6 +47,7 @@ _INITIAL_BACKOFF = 5.0  # backward-compat alias
 _DEBOUNCE_DELAY = 1.5  # PLAT-754: backward-compat alias for connection_manager.DEBOUNCE_DELAY
 _STALENESS_THRESHOLD_SECONDS = 300  # 5 minutes
 _STALENESS_CHECK_INTERVAL = 60  # Check every minute
+_MESH_PROBE_TIMEOUT = 5.0
 # Backward-compat aliases — sourced from connection_manager, re-exported for tests
 _BACKOFF_MULTIPLIER: float = 2.0
 _BRIDGE_INITIAL_BACKOFF: float = 3.0
@@ -148,6 +149,7 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             on_state_update=self._handle_conn_state_update,
         )
         self._staleness_task: asyncio.Task[None] | None = None
+        self._composition_probe_event = asyncio.Event()
 
     # --- Explicit delegation to ConnectionManager (no magic methods) ---
 
@@ -504,11 +506,10 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
                 time_since_update = now - last_update
 
                 if time_since_update > _STALENESS_THRESHOLD_SECONDS:
-                    _LOGGER.warning(
-                        "Device %s is stale (%.1fs since last update, threshold: %.1fs)",
+                    _LOGGER.debug(
+                        "Device %s has no update for %.1fs; sending active probe",
                         self._device.address,
                         time_since_update,
-                        _STALENESS_THRESHOLD_SECONDS,
                     )
 
                     # Try to probe device before marking unavailable
@@ -526,6 +527,7 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
                             degraded_reason="No updates received in 5 minutes",
                         )
                         self._dispatch_update()
+                        await self._recover_stale_device()
                     else:
                         _LOGGER.info("Device %s probe succeeded, still alive", self._device.address)
 
@@ -542,6 +544,19 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             True if device responded, False otherwise.
         """
         try:
+            # SIG Mesh GATT connections can remain locally "connected" after
+            # the remote proxy session stops forwarding traffic. A fresh
+            # Composition Data round trip validates BLE, network encryption,
+            # and device-key transport instead of trusting the client flag.
+            if self.capabilities.has_mesh_probe:
+                self._composition_probe_event.clear()
+                await self._device.request_composition_data()
+                await asyncio.wait_for(
+                    self._composition_probe_event.wait(),
+                    timeout=_MESH_PROBE_TIMEOUT,
+                )
+                return True
+
             # For BLE devices, attempt to read RSSI
             if hasattr(self._device, "get_rssi"):
                 rssi = await asyncio.wait_for(self._device.get_rssi(), timeout=5.0)
@@ -567,6 +582,15 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
         except Exception:
             _LOGGER.debug("Device %s probe exception", self._device.address, exc_info=True)
             return False
+
+    async def _recover_stale_device(self) -> None:
+        """Drop a non-responsive transport and start the normal reconnect loop."""
+        _LOGGER.warning(
+            "Forcing reconnect for non-responsive device %s",
+            self._device.address,
+        )
+        await self._conn_mgr.async_disconnect()
+        self._conn_mgr.schedule_reconnect()
 
     async def _async_update_data(self) -> None:
         return None
@@ -661,8 +685,14 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
     # --- ConnectionManager callbacks ---
 
     def _handle_reconnected(self, response_time: float) -> None:
+        now = time.time()
         self._state = replace(
-            self._state, available=True, firmware_version=self._device.firmware_version
+            self._state,
+            available=True,
+            firmware_version=self._device.firmware_version,
+            last_seen=now,
+            device_availability=DeviceAvailabilityState.AVAILABLE.value,
+            degraded_reason=None,
         )
         self.start_rssi_polling()
         self._dispatch_update()
@@ -762,6 +792,7 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
         self._conn_mgr.backoff = _INITIAL_BACKOFF
         if changed:
             self._conn_mgr.record_state_change()
+        self._maybe_persist_seq()
         if changed or not was_available:
             self._dispatch_update()
 
@@ -817,7 +848,19 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             _LOGGER.warning("Failed to send timestamp sync response", exc_info=True)
 
     def _on_composition_update(self, comp: CompositionData) -> None:
-        self._state = replace(self._state, firmware_version=self._device.firmware_version)
+        now = time.time()
+        self._state = replace(
+            self._state,
+            available=True,
+            firmware_version=self._device.firmware_version,
+            last_seen=now,
+            last_update_time=now,
+            last_update_source=StateUpdateSource.POLL.value,
+            device_availability=DeviceAvailabilityState.AVAILABLE.value,
+            degraded_reason=None,
+        )
+        self._maybe_persist_seq()
+        self._composition_probe_event.set()
         self._dispatch_update()
 
     def _on_disconnect(self) -> None:

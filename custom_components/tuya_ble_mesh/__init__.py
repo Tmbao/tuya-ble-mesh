@@ -110,7 +110,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: TuyaBLEMeshConfigEntry) 
 
     async def _ble_connect_from_ha(ble_device: Any) -> Any:
         """Connect using HA's retry connector, including ESPHome BLE proxies."""
-        from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
+        from bleak_retry_connector import (
+            BleakClientWithServiceCache,
+            close_stale_connections_by_address,
+            establish_connection,
+        )
+
+        # A proxy restart can leave Home Assistant holding a stale backend
+        # connection that consumes one of the proxy's limited GATT slots.
+        # Release it before every initial/reconnect attempt.
+        await close_stale_connections_by_address(ble_device.address)
 
         return await establish_connection(
             BleakClientWithServiceCache,

@@ -29,6 +29,7 @@ from custom_components.tuya_ble_mesh.coordinator import (  # noqa: E402
     _SEQ_SAFETY_MARGIN,
     _STALENESS_THRESHOLD_SECONDS,
     DeviceAvailabilityState,
+    StateUpdateSource,
     TuyaBLEMeshCoordinator,
     TuyaBLEMeshDeviceState,
 )
@@ -111,6 +112,11 @@ class TestCoordinatorInit:
         coord._dispatch_update()
 
         hass.loop.call_soon_threadsafe.assert_called_once_with(coord.async_set_updated_data, None)
+
+    def test_regular_device_does_not_advertise_mesh_probe(self) -> None:
+        coord = TuyaBLEMeshCoordinator(make_mock_device())
+
+        assert coord.capabilities.has_mesh_probe is False
 
 
 @pytest.mark.requires_ha
@@ -738,6 +744,7 @@ def _make_sig_mesh_device(**overrides: Any) -> MagicMock:
     device.unregister_vendor_callback = MagicMock()
     device.register_composition_callback = MagicMock()
     device.unregister_composition_callback = MagicMock()
+    device.request_composition_data = AsyncMock()
     device.register_disconnect_callback = MagicMock()
     device.unregister_disconnect_callback = MagicMock()
     device.set_seq = MagicMock()
@@ -817,6 +824,39 @@ class TestReconnectLoop:
             await coord._reconnect_loop()
 
         assert coord._backoff == _INITIAL_BACKOFF
+        assert coord.state.available is True
+
+    @pytest.mark.asyncio
+    async def test_reconnect_retries_backend_attribute_error(self) -> None:
+        """A transient proxy backend bug must not permanently kill recovery."""
+        device = make_mock_device()
+        device.connect = AsyncMock(side_effect=[AttributeError("backend race"), None])
+        coord = TuyaBLEMeshCoordinator(device)
+        coord._running = True
+
+        with patch(_PATCH_SLEEP, new_callable=AsyncMock):
+            await coord._reconnect_loop()
+
+        assert device.connect.await_count == 2
+        assert coord.state.available is True
+
+    @pytest.mark.asyncio
+    async def test_reconnect_retries_if_connection_drops_during_setup(self) -> None:
+        """A connect call is not successful if its transport already dropped."""
+        device = make_mock_device()
+
+        async def connect() -> None:
+            device.is_connected = device.connect.await_count > 1
+
+        device.is_connected = False
+        device.connect = AsyncMock(side_effect=connect)
+        coord = TuyaBLEMeshCoordinator(device)
+        coord._running = True
+
+        with patch(_PATCH_SLEEP, new_callable=AsyncMock):
+            await coord._reconnect_loop()
+
+        assert device.connect.await_count == 2
         assert coord.state.available is True
 
     @pytest.mark.asyncio
@@ -910,22 +950,36 @@ class TestScheduleReconnect:
         assert coord._reconnect_task is None
 
     @pytest.mark.asyncio
-    async def test_schedule_reconnect_cancels_existing_task(self) -> None:
-        """Should cancel previous reconnect task before starting new one."""
+    async def test_schedule_reconnect_coalesces_with_existing_task(self) -> None:
+        """Repeated disconnect callbacks should not restart the backoff timer."""
         device = make_mock_device()
         coord = TuyaBLEMeshCoordinator(device)
         coord._running = True
 
         old_task = MagicMock()
+        old_task.done.return_value = False
         coord._reconnect_task = old_task
 
         coord.schedule_reconnect()
 
-        old_task.cancel.assert_called_once()
-        assert coord._reconnect_task is not None
-        assert coord._reconnect_task is not old_task
+        old_task.cancel.assert_not_called()
+        assert coord._reconnect_task is old_task
+        coord._reconnect_task = None
 
-        # Clean up
+    @pytest.mark.asyncio
+    async def test_schedule_reconnect_replaces_completed_task(self) -> None:
+        """A completed reconnect task should be replaced."""
+        device = make_mock_device()
+        coord = TuyaBLEMeshCoordinator(device)
+        coord._running = True
+
+        old_task = MagicMock()
+        old_task.done.return_value = True
+        coord._reconnect_task = old_task
+
+        coord.schedule_reconnect()
+
+        assert coord._reconnect_task is not old_task
         coord._reconnect_task.cancel()
         coord._reconnect_task = None
 
@@ -2090,6 +2144,48 @@ class TestStalenessDetection:
 
         assert probe_success is True
         assert coord.state.last_seen > old_time + 50  # Updated recently
+
+    @pytest.mark.asyncio
+    async def test_sig_mesh_probe_requires_fresh_composition_response(self) -> None:
+        """SIG Mesh liveness is proven by a new encrypted round trip."""
+        device = _make_sig_mesh_device()
+        coord = TuyaBLEMeshCoordinator(device)
+
+        async def respond() -> None:
+            coord._on_composition_update(MagicMock())
+
+        device.request_composition_data.side_effect = respond
+
+        assert await coord._probe_device() is True
+        device.request_composition_data.assert_awaited_once()
+        assert coord.state.last_seen is not None
+        assert coord.state.last_update_source == StateUpdateSource.POLL.value
+
+    @pytest.mark.asyncio
+    async def test_sig_mesh_probe_rejects_stale_connected_flag(self) -> None:
+        """A connected client without a mesh response is not considered healthy."""
+        device = _make_sig_mesh_device()
+        coord = TuyaBLEMeshCoordinator(device)
+
+        with patch(
+            "custom_components.tuya_ble_mesh.coordinator._MESH_PROBE_TIMEOUT",
+            0.001,
+        ):
+            assert await coord._probe_device() is False
+
+        device.request_composition_data.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stale_device_recovery_disconnects_and_reconnects(self) -> None:
+        """A failed active probe should recycle the stale BLE transport."""
+        coord = TuyaBLEMeshCoordinator(_make_sig_mesh_device())
+        coord._conn_mgr.async_disconnect = AsyncMock()
+        coord._conn_mgr.schedule_reconnect = MagicMock()
+
+        await coord._recover_stale_device()
+
+        coord._conn_mgr.async_disconnect.assert_awaited_once()
+        coord._conn_mgr.schedule_reconnect.assert_called_once()
 
 
 class TestBLENotificationCallbacks:
