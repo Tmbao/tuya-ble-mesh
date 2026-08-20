@@ -149,7 +149,6 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             on_state_update=self._handle_conn_state_update,
         )
         self._staleness_task: asyncio.Task[None] | None = None
-        self._composition_probe_event = asyncio.Event()
 
     # --- Explicit delegation to ConnectionManager (no magic methods) ---
 
@@ -494,7 +493,9 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
                 await asyncio.sleep(_STALENESS_CHECK_INTERVAL)
 
                 if not self._state.available:
-                    # Already marked unavailable, skip check
+                    # Keep this watchdog as a safety net if a reconnect task
+                    # exited unexpectedly during a long proxy outage.
+                    self._conn_mgr.schedule_reconnect()
                     continue
 
                 last_update = self._state.last_seen
@@ -549,12 +550,7 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             # Composition Data round trip validates BLE, network encryption,
             # and device-key transport instead of trusting the client flag.
             if self.capabilities.has_mesh_probe:
-                self._composition_probe_event.clear()
-                await self._device.request_composition_data()
-                await asyncio.wait_for(
-                    self._composition_probe_event.wait(),
-                    timeout=_MESH_PROBE_TIMEOUT,
-                )
+                await self._device.request_composition_data_and_wait(timeout=_MESH_PROBE_TIMEOUT)
                 return True
 
             # For BLE devices, attempt to read RSSI
@@ -860,7 +856,6 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             degraded_reason=None,
         )
         self._maybe_persist_seq()
-        self._composition_probe_event.set()
         self._dispatch_update()
 
     def _on_disconnect(self) -> None:

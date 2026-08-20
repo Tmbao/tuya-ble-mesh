@@ -298,6 +298,16 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
             raise SIGMeshError(msg)
         return self._composition
 
+    async def request_composition_data_and_wait(self, timeout: float = 5.0) -> CompositionData:
+        """Request fresh Composition Data and wait for its encrypted response."""
+        self._composition_event.clear()
+        await self.request_composition_data()
+        await asyncio.wait_for(self._composition_event.wait(), timeout=timeout)
+        if self._composition is None:
+            msg = "Composition Data response completed without data"
+            raise SIGMeshError(msg)
+        return self._composition
+
     def register_disconnect_callback(self, callback: DisconnectCallback) -> None:
         """Register a callback for disconnect events."""
         self._disconnect_callbacks.append(callback)
@@ -326,6 +336,7 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
 
             last_error: Exception | None = None
             for attempt in range(1, max_retries + 1):
+                client: BleakClient | None = None
                 try:
                     _LOGGER.info(
                         "Connecting to %s (attempt %d/%d)",
@@ -369,13 +380,8 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
                     try:
                         await client.start_notify(SIG_MESH_PROXY_DATA_OUT, self._on_notify)
                     except (EOFError, BleakError, BleakDBusError, OSError) as notify_exc:
-                        _LOGGER.warning(
-                            "Notification subscription failed for %s: %s (%s) — "
-                            "device will work but won't receive push status updates",
-                            self._address,
-                            notify_exc,
-                            type(notify_exc).__name__,
-                        )
+                        msg = f"Notification subscription failed for {self._address}"
+                        raise MeshConnectionError(msg) from notify_exc
 
                     self._client = client
                     _LOGGER.info("Connected to %s", self._address)
@@ -392,6 +398,11 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
 
                 except (BleakError, MeshConnectionError, OSError) as exc:
                     last_error = exc
+                    if client is not None:
+                        with contextlib.suppress(BleakError, OSError):
+                            await client.disconnect()
+                    if self._client is client:
+                        self._client = None
                     _LOGGER.warning(
                         "Connection attempt %d failed for %s",
                         attempt,

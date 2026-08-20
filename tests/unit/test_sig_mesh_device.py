@@ -574,6 +574,34 @@ class TestCompositionData:
             await dev.wait_for_composition_data(timeout=0.001)
 
     @pytest.mark.asyncio
+    async def test_request_composition_data_and_wait_requires_fresh_response(self) -> None:
+        """A stale cached composition must not satisfy a new health check."""
+        import struct
+
+        dev = self._make_device_with_keys()
+        old_params = b"\x00" + struct.pack("<HHHHH", 0x07D0, 1, 1, 10, 3)
+        new_params = b"\x00" + struct.pack("<HHHHH", 0x07D0, 1, 2, 10, 3)
+        dev._handle_composition_data(old_params)
+
+        async def request() -> None:
+            dev._handle_composition_data(new_params)
+
+        with patch.object(dev, "request_composition_data", side_effect=request):
+            comp = await dev.request_composition_data_and_wait(timeout=0.1)
+
+        assert comp.vid == 2
+
+    @pytest.mark.asyncio
+    async def test_request_composition_data_and_wait_times_out(self) -> None:
+        dev = self._make_device_with_keys()
+
+        with (
+            patch.object(dev, "request_composition_data", new_callable=AsyncMock),
+            pytest.raises(TimeoutError),
+        ):
+            await dev.request_composition_data_and_wait(timeout=0.001)
+
+    @pytest.mark.asyncio
     async def test_dispatch_composition_status_opcode(self) -> None:
         """Opcode 0x02 should route to _handle_composition_data."""
         import struct

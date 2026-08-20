@@ -151,8 +151,8 @@ class TestConnectEdgeCases:
             await dev.connect(max_retries=1)
 
     @pytest.mark.asyncio
-    async def test_connect_notify_subscription_failure_continues(self) -> None:
-        """Lines 339-340: start_notify raises BleakError → warning, connect succeeds."""
+    async def test_connect_notify_subscription_failure_retries(self) -> None:
+        """A connection without notifications is unusable and must fail."""
         dev = _dev()
         client = _mock_client(start_notify_side_effect=BleakError("DBUS error"))
 
@@ -160,11 +160,15 @@ class TestConnectEdgeCases:
             patch("tuya_ble_mesh.sig_mesh_device.BleakScanner") as mock_scanner,
             patch("tuya_ble_mesh.sig_mesh_device.BleakClient", return_value=client),
             patch.object(dev, "request_composition_data", new_callable=AsyncMock),
+            patch.object(dev, "_bluetoothctl_remove", new_callable=AsyncMock),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(MeshConnectionError, match="Failed to connect"),
         ):
             mock_scanner.find_device_by_address = AsyncMock(return_value=MagicMock())
             await dev.connect(max_retries=1)
 
-        assert dev.is_connected is True
+        client.disconnect.assert_awaited_once()
+        assert dev.is_connected is False
 
     @pytest.mark.asyncio
     async def test_connect_composition_data_failure_continues(self) -> None:

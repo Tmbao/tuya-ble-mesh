@@ -8,6 +8,7 @@ command retry. Extracted from coordinator.py (PLAT-667).
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import statistics
 import time
@@ -59,6 +60,7 @@ COMMAND_CONCURRENCY_LIMIT = 5
 
 # Reconnect timeline max events
 RECONNECT_TIMELINE_MAX = 20
+MESH_RECONNECT_VERIFY_TIMEOUT = 5.0
 
 
 @dataclass
@@ -220,6 +222,7 @@ class ConnectionManager:
         """
         start_time = time.monotonic()
         await self._device.connect()
+        await self._verify_mesh_round_trip()
         response_time = time.monotonic() - start_time
         self._stats.response_times.append(response_time)
         self._stats.connect_time = time.time()
@@ -278,6 +281,17 @@ class ConnectionManager:
         self._stats.last_error_time = time.time()
 
     # --- Reconnect ---
+
+    async def _verify_mesh_round_trip(self) -> None:
+        """Require fresh mesh traffic when the device supports active probing."""
+        verify = getattr(self._device, "request_composition_data_and_wait", None)
+        if not inspect.iscoroutinefunction(verify):
+            return
+        try:
+            await verify(timeout=MESH_RECONNECT_VERIFY_TIMEOUT)
+        except TimeoutError:
+            msg = f"Mesh verification timed out for {self._device.address}"
+            raise ConnectionError(msg) from None
 
     def schedule_reconnect(self) -> None:
         """Schedule a reconnection attempt with exponential backoff."""
@@ -348,6 +362,7 @@ class ConnectionManager:
             try:
                 start_time = time.monotonic()
                 await self._device.connect()
+                await self._verify_mesh_round_trip()
                 if not getattr(self._device, "is_connected", True):
                     msg = f"{self._device.address} disconnected during reconnect"
                     raise ConnectionError(msg)

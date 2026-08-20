@@ -745,6 +745,7 @@ def _make_sig_mesh_device(**overrides: Any) -> MagicMock:
     device.register_composition_callback = MagicMock()
     device.unregister_composition_callback = MagicMock()
     device.request_composition_data = AsyncMock()
+    device.request_composition_data_and_wait = AsyncMock()
     device.register_disconnect_callback = MagicMock()
     device.unregister_disconnect_callback = MagicMock()
     device.set_seq = MagicMock()
@@ -857,6 +858,21 @@ class TestReconnectLoop:
             await coord._reconnect_loop()
 
         assert device.connect.await_count == 2
+        assert coord.state.available is True
+
+    @pytest.mark.asyncio
+    async def test_reconnect_requires_fresh_mesh_response_after_long_outage(self) -> None:
+        """A restored proxy transport is not healthy until mesh traffic returns."""
+        device = _make_sig_mesh_device()
+        device.request_composition_data_and_wait.side_effect = [TimeoutError, MagicMock()]
+        coord = TuyaBLEMeshCoordinator(device)
+        coord._running = True
+
+        with patch(_PATCH_SLEEP, new_callable=AsyncMock):
+            await coord._reconnect_loop()
+
+        assert device.connect.await_count == 2
+        assert device.request_composition_data_and_wait.await_count == 2
         assert coord.state.available is True
 
     @pytest.mark.asyncio
@@ -2078,6 +2094,24 @@ class TestStalenessDetection:
         assert coord.state.device_availability == DeviceAvailabilityState.AVAILABLE.value
 
     @pytest.mark.asyncio
+    async def test_unavailable_watchdog_restarts_dead_reconnect_task(self) -> None:
+        """Long proxy outages cannot leave recovery permanently stopped."""
+        coord = TuyaBLEMeshCoordinator(_make_sig_mesh_device())
+        coord._state = dc_replace(coord._state, available=False)
+        coord._conn_mgr.running = True
+
+        async def stop_after_sleep(_seconds: float) -> None:
+            coord._conn_mgr.running = False
+
+        with (
+            patch(_PATCH_SLEEP, side_effect=stop_after_sleep),
+            patch.object(coord._conn_mgr, "schedule_reconnect") as schedule,
+        ):
+            await coord._staleness_watchdog_loop()
+
+        schedule.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_successful_probe_keeps_device_available(self) -> None:
         """Successful probe should keep device available even after timeout."""
         import time
@@ -2151,13 +2185,13 @@ class TestStalenessDetection:
         device = _make_sig_mesh_device()
         coord = TuyaBLEMeshCoordinator(device)
 
-        async def respond() -> None:
+        async def respond(*, timeout: float) -> None:
             coord._on_composition_update(MagicMock())
 
-        device.request_composition_data.side_effect = respond
+        device.request_composition_data_and_wait.side_effect = respond
 
         assert await coord._probe_device() is True
-        device.request_composition_data.assert_awaited_once()
+        device.request_composition_data_and_wait.assert_awaited_once()
         assert coord.state.last_seen is not None
         assert coord.state.last_update_source == StateUpdateSource.POLL.value
 
@@ -2165,6 +2199,7 @@ class TestStalenessDetection:
     async def test_sig_mesh_probe_rejects_stale_connected_flag(self) -> None:
         """A connected client without a mesh response is not considered healthy."""
         device = _make_sig_mesh_device()
+        device.request_composition_data_and_wait.side_effect = TimeoutError
         coord = TuyaBLEMeshCoordinator(device)
 
         with patch(
@@ -2173,7 +2208,7 @@ class TestStalenessDetection:
         ):
             assert await coord._probe_device() is False
 
-        device.request_composition_data.assert_awaited_once()
+        device.request_composition_data_and_wait.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_stale_device_recovery_disconnects_and_reconnects(self) -> None:
