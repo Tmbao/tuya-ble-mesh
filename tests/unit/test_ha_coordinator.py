@@ -877,16 +877,36 @@ class TestReconnectLoop:
         assert coord.state.available is True
 
     @pytest.mark.asyncio
-    async def test_initial_mesh_verification_failure_releases_proxy_slot(self) -> None:
-        """A failed initial mesh round trip must not leak its BLE client."""
+    async def test_initial_connection_failure_releases_proxy_slot(self) -> None:
+        """A failed initial connection must not leak its BLE client or retry task."""
+        device = _make_sig_mesh_device()
+        device.connect.side_effect = ConnectionError("connect failed")
+        coord = TuyaBLEMeshCoordinator(device)
+
+        async def disconnect() -> None:
+            coord._on_disconnect()
+
+        device.disconnect.side_effect = disconnect
+
+        with pytest.raises(ConnectionError, match="connect failed"):
+            await coord.async_initial_connect()
+
+        device.disconnect.assert_awaited_once()
+        assert coord._running is False
+        assert coord._reconnect_task is None
+
+    @pytest.mark.asyncio
+    async def test_initial_connection_does_not_require_composition_probe(self) -> None:
+        """Runtime Composition Data support must not block entity setup."""
         device = _make_sig_mesh_device()
         device.request_composition_data_and_wait.side_effect = TimeoutError
         coord = TuyaBLEMeshCoordinator(device)
 
-        with pytest.raises(ConnectionError, match="Mesh verification timed out"):
-            await coord.async_initial_connect()
+        await coord.async_initial_connect()
 
-        device.disconnect.assert_awaited_once()
+        device.request_composition_data_and_wait.assert_not_awaited()
+        assert coord.state.available is True
+        await coord.async_stop()
 
     @pytest.mark.asyncio
     async def test_reconnect_sets_firmware_version(self) -> None:

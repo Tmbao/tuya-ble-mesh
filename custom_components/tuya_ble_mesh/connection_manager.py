@@ -223,11 +223,14 @@ class ConnectionManager:
         start_time = time.monotonic()
         try:
             await self._device.connect()
-            await self._verify_mesh_round_trip()
         except Exception:
-            # A transport can be connected while mesh notifications are dead.
-            # Always release that client before HA retries config-entry setup,
-            # otherwise ESPHome proxy slots accumulate stale connections.
+            # Always release a partially connected client before HA retries
+            # config-entry setup, otherwise ESPHome proxy slots can accumulate
+            # stale connections.
+            # Disable our own reconnect scheduler first: HA owns retries while
+            # a config entry is not ready, and disconnect callbacks must not
+            # leave an orphan reconnect loop behind this failed setup attempt.
+            self._running = False
             await self.async_disconnect()
             raise
         response_time = time.monotonic() - start_time
