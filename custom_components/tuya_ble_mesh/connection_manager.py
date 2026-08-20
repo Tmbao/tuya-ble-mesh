@@ -221,8 +221,15 @@ class ConnectionManager:
             Any exception from device.connect().
         """
         start_time = time.monotonic()
-        await self._device.connect()
-        await self._verify_mesh_round_trip()
+        try:
+            await self._device.connect()
+            await self._verify_mesh_round_trip()
+        except Exception:
+            # A transport can be connected while mesh notifications are dead.
+            # Always release that client before HA retries config-entry setup,
+            # otherwise ESPHome proxy slots accumulate stale connections.
+            await self.async_disconnect()
+            raise
         response_time = time.monotonic() - start_time
         self._stats.response_times.append(response_time)
         self._stats.connect_time = time.time()
@@ -389,6 +396,10 @@ class ConnectionManager:
                     self.start_rssi_polling()
                 return
             except Exception as err:
+                # Verification failures happen after device.connect() returns,
+                # so explicitly release that client before the next attempt.
+                # This also makes cleanup idempotent for connect-time failures.
+                await self.async_disconnect()
                 self._stats.total_errors += 1
                 self._stats.connection_errors += 1
                 self._stats.last_error = str(err)

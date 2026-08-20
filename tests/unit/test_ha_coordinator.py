@@ -873,7 +873,20 @@ class TestReconnectLoop:
 
         assert device.connect.await_count == 2
         assert device.request_composition_data_and_wait.await_count == 2
+        device.disconnect.assert_awaited_once()
         assert coord.state.available is True
+
+    @pytest.mark.asyncio
+    async def test_initial_mesh_verification_failure_releases_proxy_slot(self) -> None:
+        """A failed initial mesh round trip must not leak its BLE client."""
+        device = _make_sig_mesh_device()
+        device.request_composition_data_and_wait.side_effect = TimeoutError
+        coord = TuyaBLEMeshCoordinator(device)
+
+        with pytest.raises(ConnectionError, match="Mesh verification timed out"):
+            await coord.async_initial_connect()
+
+        device.disconnect.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_reconnect_sets_firmware_version(self) -> None:

@@ -129,7 +129,13 @@ class TestCoordinatorReconnectLoop:
         """Failed reconnect should increment consecutive failures."""
         dev = _make_bridge_device()
         dev._connected = True
-        dev.connect = AsyncMock(side_effect=[OSError("refused"), None])
+
+        async def connect() -> None:
+            if dev.connect.await_count == 1:
+                raise OSError("refused")
+            dev._connected = True
+
+        dev.connect = AsyncMock(side_effect=connect)
         dev._firmware_version = "bridge"
 
         coord = TuyaBLEMeshCoordinator(dev)
@@ -188,7 +194,13 @@ class TestCoordinatorReconnectLoop:
         """Bridge devices should cap backoff at _BRIDGE_MAX_BACKOFF."""
         dev = _make_bridge_device()
         dev._connected = True
-        dev.connect = AsyncMock(side_effect=[OSError("refused"), None])
+
+        async def connect() -> None:
+            if dev.connect.await_count == 1:
+                raise OSError("refused")
+            dev._connected = True
+
+        dev.connect = AsyncMock(side_effect=connect)
         dev._firmware_version = "bridge"
 
         coord = TuyaBLEMeshCoordinator(dev)
