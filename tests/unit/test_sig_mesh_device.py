@@ -350,7 +350,7 @@ class TestSegmentReassembly:
         info = (0 << 23) | (100 << 10) | (0 << 5) | 1  # seg_o=0, seg_n=1
         pdu = bytes([hdr]) + struct.pack(">I", info)[1:] + b"\x42" * 12
 
-        await dev._handle_segment(0x00AA, 0x0001, pdu)
+        await dev._handle_segment(0x00AA, 0x0001, 100, pdu)
 
         assert (0x00AA, 0x0001, 100, 0) in dev._segment_buffers
         buf = dev._segment_buffers[(0x00AA, 0x0001, 100, 0)]
@@ -376,8 +376,8 @@ class TestSegmentReassembly:
         )
 
         # Feed each segment through _handle_segment
-        for _seq, transport_pdu in segments:
-            await dev._handle_segment(0x00AA, 0x0001, transport_pdu)
+        for seq, transport_pdu in segments:
+            await dev._handle_segment(0x00AA, 0x0001, seq, transport_pdu)
 
         # Buffer should be consumed after complete reassembly
         assert (0x00AA, 100 & 0x1FFF) not in dev._segment_buffers
@@ -394,7 +394,7 @@ class TestSegmentReassembly:
         hdr = 0x80
         info = (0 << 23) | (200 << 10) | (0 << 5) | 1
         pdu = bytes([hdr]) + struct.pack(">I", info)[1:] + b"\x42" * 12
-        await dev._handle_segment(0x00AA, 0x0001, pdu)
+        await dev._handle_segment(0x00AA, 0x0001, 200, pdu)
 
         # Make the buffer look stale
         buf = dev._segment_buffers[(0x00AA, 0x0001, 200, 0)]
@@ -403,10 +403,36 @@ class TestSegmentReassembly:
         # Trigger cleanup with another segment
         info2 = (0 << 23) | (300 << 10) | (0 << 5) | 0
         pdu2 = bytes([hdr]) + struct.pack(">I", info2)[1:] + b"\x42" * 8
-        await dev._handle_segment(0x00BB, 0x0001, pdu2)
+        await dev._handle_segment(0x00BB, 0x0001, 300, pdu2)
 
         # Stale buffer should be gone
         assert (0x00AA, 0x0001, 200, 0) not in dev._segment_buffers
+
+    @pytest.mark.asyncio
+    async def test_seq_auth_reconstructed_across_sequence_boundary(self) -> None:
+        """Segments spanning a 13-bit boundary retain the first sequence."""
+        from tuya_ble_mesh.sig_mesh_protocol import make_access_segmented
+
+        dev = self._make_device_with_keys()
+        assert dev._keys is not None
+        seq_auth = 0x3FFE
+        access_payload = b"\x82\x04\x01" + b"\x00" * 20
+        segments = make_access_segmented(
+            dev._keys.dev_key,
+            0x00AA,
+            0x0001,
+            seq_auth,
+            0,
+            access_payload,
+        )
+        assert segments[-1][0] >= 0x4000
+        onoff_callback = MagicMock()
+        dev.register_onoff_callback(onoff_callback)
+
+        for seq, transport_pdu in segments:
+            await dev._handle_segment(0x00AA, 0x0001, seq, transport_pdu)
+
+        onoff_callback.assert_called_once_with(True)
 
     @pytest.mark.asyncio
     async def test_dispatch_access_payload_onoff(self) -> None:

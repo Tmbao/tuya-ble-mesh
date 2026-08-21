@@ -63,6 +63,7 @@ class _ReassemblyBuffer:
     aid: int
     szmic: int
     seq_zero: int
+    seq_auth: int
     seg_n: int
     segments: dict[int, bytes] = field(default_factory=dict)
     created_at: float = field(default_factory=time.monotonic)
@@ -180,7 +181,12 @@ class SIGMeshDeviceSegmentsMixin:
             return
 
         if access_msg.seg:
-            await self._handle_segment(net_pdu.src, net_pdu.dst, net_pdu.transport_pdu)
+            await self._handle_segment(
+                net_pdu.src,
+                net_pdu.dst,
+                net_pdu.seq,
+                net_pdu.transport_pdu,
+            )
             return
 
         if access_msg.access_payload is None:
@@ -189,7 +195,13 @@ class SIGMeshDeviceSegmentsMixin:
 
         await self._dispatch_access_payload(net_pdu.src, access_msg.access_payload)
 
-    async def _handle_segment(self, src: int, dst: int, transport_pdu: bytes) -> None:
+    async def _handle_segment(
+        self,
+        src: int,
+        dst: int,
+        seq: int,
+        transport_pdu: bytes,
+    ) -> None:
         """Collect a segment and attempt reassembly when complete.
 
         CF-1: Protected with _segment_lock to prevent race conditions in concurrent
@@ -198,6 +210,7 @@ class SIGMeshDeviceSegmentsMixin:
         Args:
             src: Source unicast address.
             dst: Destination address.
+            seq: Network sequence number carried by this segment.
             transport_pdu: Lower transport PDU (segmented).
         """
         try:
@@ -206,8 +219,18 @@ class SIGMeshDeviceSegmentsMixin:
             _LOGGER.debug("Failed to parse segment header", exc_info=True)
             return
 
-        # Per BT Mesh spec: buffer key must include src, dst, seq_zero, and aid
-        buf_key = (src, dst, seg_hdr.seq_zero, seg_hdr.aid)
+        # Mesh Profile 3.5.3.2: SeqZero carries only the low 13 bits of
+        # SeqAuth. Reconstruct the full 24-bit sequence from any segment's
+        # network sequence number. Using SeqZero directly works only while a
+        # node's sequence is below 0x2000 and breaks upper transport MIC
+        # verification afterwards.
+        seq_auth = (seq & ~0x1FFF) | seg_hdr.seq_zero
+        if seq_auth > seq:
+            seq_auth -= 0x2000
+
+        # Per BT Mesh spec: buffer identity includes the full SeqAuth so a
+        # later message that reuses SeqZero cannot collide with an old buffer.
+        buf_key = (src, dst, seq_auth, seg_hdr.aid)
 
         # CF-1: Lock ALL access to _segment_buffers to prevent race conditions
         async with self._segment_lock:
@@ -221,6 +244,7 @@ class SIGMeshDeviceSegmentsMixin:
                     aid=seg_hdr.aid,
                     szmic=seg_hdr.szmic,
                     seq_zero=seg_hdr.seq_zero,
+                    seq_auth=seq_auth,
                     seg_n=seg_hdr.seg_n,
                 )
                 self._segment_buffers[buf_key] = buf
@@ -228,11 +252,12 @@ class SIGMeshDeviceSegmentsMixin:
             buf.segments[seg_hdr.seg_o] = seg_hdr.segment_data
 
             _LOGGER.debug(
-                "Segment %d/%d received from 0x%04X (seq_zero=%d)",
+                "Segment %d/%d received from 0x%04X (seq_zero=%d, seq_auth=%d)",
                 seg_hdr.seg_o,
                 seg_hdr.seg_n,
                 src,
                 seg_hdr.seq_zero,
+                seq_auth,
             )
 
             # Check if all segments received
@@ -248,7 +273,7 @@ class SIGMeshDeviceSegmentsMixin:
         CF-1: Called while holding _segment_lock to ensure atomic buffer removal.
 
         Args:
-            buf_key: (src, dst, seq_zero, aid) key into _segment_buffers.
+            buf_key: (src, dst, seq_auth, aid) key into _segment_buffers.
         """
         # CF-1: Buffer removal happens while lock is held (caller holds _segment_lock)
         buf = self._segment_buffers.pop(buf_key, None)
@@ -262,7 +287,7 @@ class SIGMeshDeviceSegmentsMixin:
             buf.segments,
             buf.seg_n,
             buf.szmic,
-            buf.seq_zero,
+            buf.seq_auth,
             buf.akf,
         )
 

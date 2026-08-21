@@ -47,6 +47,7 @@ class TestCrossSessionReplayProtection:
         mock_hass = MagicMock()
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock(return_value={"seq": old_seqs[-1]})
+        mock_store.async_save = AsyncMock()
 
         coord = TuyaBLEMeshCoordinator(device, hass=mock_hass, entry_id="test_entry")
 
@@ -71,6 +72,7 @@ class TestCrossSessionReplayProtection:
         stored_seq = 5000
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock(return_value={"seq": stored_seq})
+        mock_store.async_save = AsyncMock()
         mock_hass = MagicMock()
 
         coord = TuyaBLEMeshCoordinator(device, hass=mock_hass, entry_id="test_entry")
@@ -190,6 +192,7 @@ class TestReplayWindowEdgeCases:
         stored = 10000
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock(return_value={"seq": stored})
+        mock_store.async_save = AsyncMock()
         mock_hass = MagicMock()
 
         coord = TuyaBLEMeshCoordinator(device, hass=mock_hass, entry_id="test_entry")
@@ -213,6 +216,7 @@ class TestReplayWindowEdgeCases:
 
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock(return_value={"seq": 0})
+        mock_store.async_save = AsyncMock()
         mock_hass = MagicMock()
 
         coord = TuyaBLEMeshCoordinator(device, hass=mock_hass, entry_id="test_entry")
@@ -239,6 +243,7 @@ class TestReplayWindowEdgeCases:
 
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock(return_value={"seq": max_seq})
+        mock_store.async_save = AsyncMock()
         mock_hass = MagicMock()
 
         coord = TuyaBLEMeshCoordinator(device, hass=mock_hass, entry_id="test_entry")

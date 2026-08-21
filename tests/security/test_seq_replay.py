@@ -68,6 +68,7 @@ class TestSeqRestoreWithMargin:
         mock_hass = MagicMock()
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock(return_value={"seq": stored_seq})
+        mock_store.async_save = AsyncMock()
 
         coord = TuyaBLEMeshCoordinator(device, hass=mock_hass, entry_id="test_entry")
 
@@ -98,6 +99,7 @@ class TestSeqRestoreWithMargin:
         mock_hass = MagicMock()
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock(return_value={"seq": stored_seq})
+        mock_store.async_save = AsyncMock()
 
         coord = TuyaBLEMeshCoordinator(device, hass=mock_hass, entry_id="test_entry")
 

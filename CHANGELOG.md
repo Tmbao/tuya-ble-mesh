@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Segmented SIG Mesh response decryption** — reconstruct the full 24-bit SeqAuth from
+  each segment's network sequence and 13-bit SeqZero before building the upper transport
+  nonce. Devices with sequence numbers above `0x1FFF` can now return composition data and
+  status messages without timing out.
+
 ---
 
 ## [0.38.0] — 2026-03-31

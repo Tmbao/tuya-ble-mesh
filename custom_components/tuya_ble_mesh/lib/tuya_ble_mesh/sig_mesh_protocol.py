@@ -405,7 +405,7 @@ def reassemble_and_decrypt_segments(
     segments: dict[int, bytes],
     seg_n: int,
     szmic: int,
-    seq_zero: int,
+    seq_auth: int,
     akf: int,
 ) -> bytes | None:
     """Reassemble segmented transport PDU chunks and decrypt."""
@@ -423,7 +423,7 @@ def reassemble_and_decrypt_segments(
         return None
 
     mic_len = MIC_LEN_CONTROL if szmic else MIC_LEN_ACCESS
-    nonce = _make_app_nonce(akf, szmic, seq_zero, src, dst, keys.iv_index)
+    nonce = _make_app_nonce(akf, szmic, seq_auth, src, dst, keys.iv_index)
 
     try:
         return bytes(mesh_aes_ccm_decrypt(key, nonce, upper_transport, mic_len))

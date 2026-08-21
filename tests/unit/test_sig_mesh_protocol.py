@@ -590,8 +590,6 @@ class TestReassembleAndDecrypt:
             seg_data[hdr_result.seg_o] = hdr_result.segment_data
 
         seg_n = segments[0][1][3] & 0x1F  # from first segment info
-        seq_zero = 1000 & 0x1FFF
-
         result = reassemble_and_decrypt_segments(
             mesh_keys,
             0x0001,
@@ -599,7 +597,7 @@ class TestReassembleAndDecrypt:
             seg_data,
             seg_n,
             0,
-            seq_zero,
+            1000,
             akf=0,
         )
         assert result == access_payload
@@ -623,8 +621,6 @@ class TestReassembleAndDecrypt:
             seg_data[hdr_result.seg_o] = hdr_result.segment_data
 
         seg_n = len(segments) - 1
-        seq_zero = 2000 & 0x1FFF
-
         result = reassemble_and_decrypt_segments(
             mesh_keys,
             0x0001,
@@ -632,7 +628,7 @@ class TestReassembleAndDecrypt:
             seg_data,
             seg_n,
             0,
-            seq_zero,
+            2000,
             akf=1,
         )
         assert result == access_payload
@@ -646,7 +642,7 @@ class TestReassembleAndDecrypt:
             {0: b"\x42" * 12},  # missing segment 1
             seg_n=1,
             szmic=0,
-            seq_zero=100,
+            seq_auth=100,
             akf=0,
         )
         assert result is None
@@ -675,7 +671,7 @@ class TestReassembleAndDecrypt:
             seg_data,
             seg_n=len(segments) - 1,
             szmic=0,
-            seq_zero=500 & 0x1FFF,
+            seq_auth=500,
             akf=1,
         )
         assert result is None
@@ -690,10 +686,44 @@ class TestReassembleAndDecrypt:
             {0: b"\x42" * 12},
             seg_n=0,
             szmic=0,
-            seq_zero=100,
+            seq_auth=100,
             akf=1,
         )
         assert result is None
+
+    def test_roundtrip_uses_full_seq_auth_above_seq_zero_range(self, mesh_keys: MeshKeys) -> None:
+        """The upper transport nonce must use all 24 bits of SeqAuth."""
+        seq_auth = 0x23456
+        access_payload = b"\x80\x08\x00" + b"\x42" * 20
+        segments = make_access_segmented(
+            mesh_keys.dev_key,
+            0x0001,
+            0x00AA,
+            seq_auth,
+            0,
+            access_payload,
+            akf=0,
+            aid=0,
+        )
+        seg_data = {
+            parse_segment_header(transport_pdu).seg_o: parse_segment_header(
+                transport_pdu
+            ).segment_data
+            for _seq, transport_pdu in segments
+        }
+
+        result = reassemble_and_decrypt_segments(
+            mesh_keys,
+            0x0001,
+            0x00AA,
+            seg_data,
+            len(segments) - 1,
+            0,
+            seq_auth,
+            akf=0,
+        )
+
+        assert result == access_payload
 
 
 # ============================================================

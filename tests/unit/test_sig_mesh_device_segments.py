@@ -202,7 +202,12 @@ class TestProcessNotify:
         ):
             await dev._process_notify(b"\x00" * 29)
 
-        mock_handle.assert_called_once_with(0x0001, 0x0010, mock_net.transport_pdu)
+        mock_handle.assert_called_once_with(
+            0x0001,
+            0x0010,
+            mock_net.seq,
+            mock_net.transport_pdu,
+        )
 
     @pytest.mark.asyncio
     async def test_none_access_payload_after_unseg_returns(self) -> None:
@@ -238,7 +243,7 @@ class TestHandleSegment:
     async def test_malformed_segment_header_returns_silently(self) -> None:
         dev = _make_device()
         with patch(f"{_MOD}.parse_segment_header", side_effect=MalformedPacketError("bad hdr")):
-            await dev._handle_segment(0x0001, 0x0010, b"\x00" * 8)  # Must not raise
+            await dev._handle_segment(0x0001, 0x0010, 1, b"\x00" * 8)  # Must not raise
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +276,7 @@ class TestCompleteReassembly:
             aid=0,
             szmic=0,
             seq_zero=50,
+            seq_auth=50,
             seg_n=0,
         )
         buf.segments[0] = b"\x00" * 8  # fake segment data
