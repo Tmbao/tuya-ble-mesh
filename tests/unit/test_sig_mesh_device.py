@@ -275,6 +275,16 @@ class TestSIGMeshDeviceSequence:
         s2 = await dev._next_seq()
         assert s2 == s1 + 1
 
+    @pytest.mark.asyncio
+    async def test_next_seq_notifies_persistence_callback(self) -> None:
+        dev = SIGMeshDevice("DC:23:4D:21:43:A5", 0x00AA, 0x0001, MagicMock())
+        callback = MagicMock()
+        dev.register_sequence_callback(callback)
+
+        consumed = await dev._next_seq()
+
+        callback.assert_called_once_with(consumed + 1)
+
     def test_set_seq(self) -> None:
         dev = SIGMeshDevice("DC:23:4D:21:43:A5", 0x00AA, 0x0001, MagicMock())
         dev.set_seq(5000)

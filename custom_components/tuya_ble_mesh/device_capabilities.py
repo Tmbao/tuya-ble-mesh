@@ -30,6 +30,8 @@ class DeviceCapabilities:
             Composition Data to verify the complete BLE and mesh path.
         has_sig_sequence: True when the device exposes ``set_seq``/``get_seq``
             for sequence-number persistence (SIG Mesh direct only).
+        has_sequence_callback: True when outgoing sequence allocation can
+            notify the coordinator for response-independent persistence.
         has_light_control: True when ``device.send_brightness`` exists,
             indicating full light-control support (brightness/colour/temp).
         has_power_monitoring: True when the device reports
@@ -44,6 +46,7 @@ class DeviceCapabilities:
     has_composition_callback: bool
     has_mesh_probe: bool
     has_sig_sequence: bool
+    has_sequence_callback: bool
     has_light_control: bool
     has_power_monitoring: bool
     protocol: str  # "SIG_Mesh" | "Tuya_BLE"
@@ -71,6 +74,7 @@ class DeviceCapabilities:
                 getattr(device, "request_composition_data_and_wait", None)
             ),
             has_sig_sequence=hasattr(device, "set_seq") and hasattr(device, "get_seq"),
+            has_sequence_callback=hasattr(device, "register_sequence_callback"),
             has_light_control=hasattr(device, "send_brightness"),
             has_power_monitoring=bool(getattr(device, "supports_power_monitoring", False)),
             protocol="SIG_Mesh" if hasattr(device, "set_seq") else "Tuya_BLE",

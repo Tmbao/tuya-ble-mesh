@@ -61,6 +61,7 @@ StatusCallback = Callable[[Any], Any]
 VendorCallback = Callable[[int, bytes], Any]
 CompositionCallback = Callable[[CompositionData], Any]
 DisconnectCallback = Callable[[], Any]
+SequenceCallback = Callable[[int], Any]
 
 # BlueZ D-Bus cache settle delay after device removal (seconds)
 _BLUEZ_CACHE_CLEAR_DELAY = 2.0
@@ -192,6 +193,7 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
         self._vendor_callbacks: list[VendorCallback] = []
         self._composition_callbacks: list[CompositionCallback] = []
         self._disconnect_callbacks: list[DisconnectCallback] = []
+        self._sequence_callbacks: list[SequenceCallback] = []
         self._lightness_actual = 0xFFFF
         self._ctl_temperature_kelvin = 4000
 
@@ -315,6 +317,14 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
     def unregister_disconnect_callback(self, callback: DisconnectCallback) -> None:
         """Remove a previously registered disconnect callback."""
         self._disconnect_callbacks.remove(callback)
+
+    def register_sequence_callback(self, callback: SequenceCallback) -> None:
+        """Register a callback invoked after outgoing sequence allocation."""
+        self._sequence_callbacks.append(callback)
+
+    def unregister_sequence_callback(self, callback: SequenceCallback) -> None:
+        """Remove a previously registered sequence callback."""
+        self._sequence_callbacks.remove(callback)
 
     async def connect(
         self,
@@ -462,7 +472,9 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
             if seq > 0xFFFFFF:
                 msg = "Sequence number exhausted — reconnect required"
                 raise SIGMeshError(msg)
-            self._seq_store.set_seq(seq + 1)
+            next_seq = seq + 1
+            self._seq_store.set_seq(next_seq)
+            self._notify_sequence_advanced(next_seq)
             return seq
 
     async def _next_seqs(self, n: int) -> int:
@@ -485,8 +497,20 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
             if seq > 0xFFFFFF or (seq + n) > 0xFFFFFF:
                 msg = "Sequence number exhausted — reconnect required"
                 raise SIGMeshError(msg)
-            self._seq_store.set_seq(seq + n)
+            next_seq = seq + n
+            self._seq_store.set_seq(next_seq)
+            self._notify_sequence_advanced(next_seq)
             return seq
+
+    def _notify_sequence_advanced(self, next_seq: int) -> None:
+        """Notify persistence observers without interrupting mesh commands."""
+        for callback in list(self._sequence_callbacks):
+            try:
+                callback(next_seq)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.warning("Sequence callback error", exc_info=True)
 
     async def _load_keys(self) -> None:
         """Load mesh keys from 1Password via SecretsManager.

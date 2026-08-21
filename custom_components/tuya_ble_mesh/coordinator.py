@@ -41,7 +41,7 @@ AnyMeshDevice = Union["MeshDevice", "SIGMeshDevice", "TelinkBridgeDevice", "SIGM
 _LOGGER = logging.getLogger(__name__)
 _MAX_CALLBACK_ERRORS = 3
 _SEQ_PERSIST_INTERVAL = 10
-_SEQ_SAFETY_MARGIN = 100
+_SEQ_SAFETY_MARGIN = 4096
 _SEQ_STORE_VERSION = 1
 _INITIAL_BACKOFF = 5.0  # backward-compat alias
 _DEBOUNCE_DELAY = 1.5  # PLAT-754: backward-compat alias for connection_manager.DEBOUNCE_DELAY
@@ -901,6 +901,10 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
 
     # --- Sequence persistence ---
 
+    def _on_sequence_advanced(self, _next_seq: int) -> None:
+        """Persist outgoing sequence use even when the device never responds."""
+        self._maybe_persist_seq()
+
     def _maybe_persist_seq(self) -> None:
         self._seq_command_count += 1
         if self._seq_command_count >= _SEQ_PERSIST_INTERVAL:
@@ -926,6 +930,10 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
         data = await self._seq_store.async_load()
         if data is not None and "seq" in data:
             restored = data["seq"] + _SEQ_SAFETY_MARGIN
+            # Persist the reserved startup jump before any packet is sent. If
+            # HA exits without receiving a response, the next start must still
+            # advance beyond every sequence the bulb may have observed.
+            await self._seq_store.async_save({"seq": restored})
             self._device.set_seq(restored)
             _LOGGER.info(
                 "Restored seq=%d (stored=%d + margin=%d)", restored, data["seq"], _SEQ_SAFETY_MARGIN
@@ -969,6 +977,8 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             self._device.register_composition_callback(self._on_composition_update)
         if self.capabilities.has_status_callback:
             self._device.register_status_callback(self._on_status_update)
+        if self.capabilities.has_sequence_callback:
+            self._device.register_sequence_callback(self._on_sequence_advanced)
         self._device.register_disconnect_callback(self._on_disconnect)
 
         # Connect and let exceptions propagate to async_setup_entry
@@ -1016,6 +1026,7 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
                 ("unregister_vendor_callback", self._on_vendor_update),
                 ("unregister_composition_callback", self._on_composition_update),
                 ("unregister_status_callback", self._on_status_update),
+                ("unregister_sequence_callback", self._on_sequence_advanced),
             ):
                 if hasattr(self._device, attr):
                     with contextlib.suppress(ValueError, AttributeError):

@@ -486,6 +486,7 @@ class TestSeqPersistence:
         mock_hass = MagicMock()
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock(return_value={"seq": 3000})
+        mock_store.async_save = AsyncMock()
 
         coord = TuyaBLEMeshCoordinator(device, hass=mock_hass, entry_id="test_entry")
 
@@ -496,6 +497,7 @@ class TestSeqPersistence:
             await coord._load_seq()
 
         device.set_seq.assert_called_once_with(3000 + _SEQ_SAFETY_MARGIN)
+        mock_store.async_save.assert_awaited_once_with({"seq": 3000 + _SEQ_SAFETY_MARGIN})
 
     @pytest.mark.asyncio
     async def test_load_seq_without_stored_data(self) -> None:
@@ -545,8 +547,8 @@ class TestSeqPersistence:
         coord = TuyaBLEMeshCoordinator(device)
         await coord._save_seq()  # Should not raise
 
-    def test_periodic_save_on_onoff_update(self) -> None:
-        """Seq should be saved every _SEQ_PERSIST_INTERVAL onoff updates."""
+    def test_periodic_save_on_outgoing_sequence_advance(self) -> None:
+        """Seq should be saved even when outgoing commands get no response."""
         device = MagicMock()
         device.address = "DC:23:4D:21:43:A5"
         device.get_seq = MagicMock(return_value=2000)
@@ -558,14 +560,14 @@ class TestSeqPersistence:
         coord._seq_store = mock_store
         coord._seq_command_count = _SEQ_PERSIST_INTERVAL - 1
 
-        coord._on_onoff_update(True)
+        coord._on_sequence_advanced(2000)
 
         assert coord._seq_command_count == 0
 
     def test_seq_persistence_constants(self) -> None:
         """Verify seq persistence constants."""
         assert _SEQ_PERSIST_INTERVAL == 10
-        assert _SEQ_SAFETY_MARGIN == 100
+        assert _SEQ_SAFETY_MARGIN == 4096
 
 
 @pytest.mark.requires_ha
@@ -748,6 +750,8 @@ def _make_sig_mesh_device(**overrides: Any) -> MagicMock:
     device.request_composition_data_and_wait = AsyncMock()
     device.register_disconnect_callback = MagicMock()
     device.unregister_disconnect_callback = MagicMock()
+    device.register_sequence_callback = MagicMock()
+    device.unregister_sequence_callback = MagicMock()
     device.set_seq = MagicMock()
     device.get_seq = MagicMock(return_value=1000)
     device.firmware_version = None
@@ -1385,9 +1389,9 @@ class TestSeqPersistenceExtended:
         coord._seq_store = mock_store
         coord._seq_command_count = 0
 
-        # Fire updates less than the interval
+        # Consume outgoing sequence numbers below the persistence interval.
         for _ in range(_SEQ_PERSIST_INTERVAL - 1):
-            coord._on_onoff_update(True)
+            coord._on_sequence_advanced(1000)
 
         assert coord._seq_command_count == _SEQ_PERSIST_INTERVAL - 1
         # _save_seq should NOT have been triggered
