@@ -55,7 +55,7 @@ _DEBOUNCE_DELAY = 1.5  # PLAT-754: backward-compat alias for connection_manager.
 _STALENESS_THRESHOLD_SECONDS = 300  # 5 minutes
 _STALENESS_CHECK_INTERVAL = 60  # Check every minute
 _MESH_PROBE_TIMEOUT = 5.0
-_MODEL_LIGHT_CTL_SERVER = 0x1303
+_MODEL_LIGHT_CTL_TEMPERATURE_SERVER = 0x1306
 # Backward-compat aliases — sourced from connection_manager, re-exported for tests
 _BACKOFF_MULTIPLIER: float = 2.0
 _BRIDGE_INITIAL_BACKOFF: float = 3.0
@@ -602,13 +602,13 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
         self._conn_mgr.schedule_reconnect()
 
     async def _ensure_sig_light_ctl_binding(self) -> None:
-        """Repair a missing Light CTL AppKey binding on legacy light entries.
+        """Repair a missing Light CTL Temperature AppKey binding.
 
-        Early SIG-light entries could be provisioned before Light CTL model
-        binding was reliable.  Generic OnOff and Light Lightness then work,
-        while colour-temperature commands are silently ignored.  Model App
-        Bind is idempotent, so legacy entries can be repaired without resetting
-        or re-provisioning the bulb.
+        Some SIG lights expose temperature control only through the dedicated
+        Light CTL Temperature Server.  Generic OnOff and Light Lightness then
+        work while a Light CTL Set is silently ignored.  Model App Bind is
+        idempotent, so legacy entries can be repaired without resetting or
+        re-provisioning the bulb.
         """
         if self._sig_light_ctl_binding_repaired or self._entry is None:
             return
@@ -624,16 +624,16 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
                 (
                     index
                     for index, element in enumerate(composition.elements)
-                    if _MODEL_LIGHT_CTL_SERVER in element.sig_models
+                    if _MODEL_LIGHT_CTL_TEMPERATURE_SERVER in element.sig_models
                 ),
                 None,
             )
             if element_index is None:
                 _LOGGER.warning(
-                    "Cannot repair colour temperature for %s: Light CTL Server "
+                    "Cannot repair colour temperature for %s: Light CTL Temperature Server "
                     "model 0x%04X is absent from Composition Data",
                     self._device.address,
-                    _MODEL_LIGHT_CTL_SERVER,
+                    _MODEL_LIGHT_CTL_TEMPERATURE_SERVER,
                 )
                 return
 
@@ -642,7 +642,7 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             bind_ok = await device.send_config_model_app_bind(
                 element_addr,
                 0,
-                _MODEL_LIGHT_CTL_SERVER,
+                _MODEL_LIGHT_CTL_TEMPERATURE_SERVER,
             )
             if not bind_ok:
                 _LOGGER.warning(

@@ -74,6 +74,7 @@ OP_LIGHT_LIGHTNESS_SET = 0x824C
 OP_LIGHT_LIGHTNESS_STATUS = 0x824E
 OP_LIGHT_CTL_SET = 0x825E
 OP_LIGHT_CTL_STATUS = 0x8260
+OP_LIGHT_CTL_TEMPERATURE_SET = 0x8264
 OP_LIGHT_CTL_TEMPERATURE_STATUS = 0x8266
 
 # --- Tuya Vendor Model (CID 0x07D0) ---
@@ -252,6 +253,23 @@ def light_ctl_set(
         raise ProtocolError(msg)
     return struct.pack(">H", OP_LIGHT_CTL_SET) + struct.pack(
         "<HHhB", lightness, temperature, delta_uv, tid & 0xFF
+    )
+
+
+def light_ctl_temperature_set(
+    temperature: int,
+    tid: int = 0,
+    delta_uv: int = 0,
+) -> bytes:
+    """Light CTL Temperature Set for temperature in kelvin and delta UV."""
+    if not 800 <= temperature <= 20000:
+        msg = f"CTL temperature must be 800..20000 K, got {temperature}"
+        raise ProtocolError(msg)
+    if not -32768 <= delta_uv <= 32767:
+        msg = f"delta_uv must be -32768..32767, got {delta_uv}"
+        raise ProtocolError(msg)
+    return struct.pack(">H", OP_LIGHT_CTL_TEMPERATURE_SET) + struct.pack(
+        "<HhB", temperature, delta_uv, tid & 0xFF
     )
 
 

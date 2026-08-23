@@ -274,7 +274,7 @@ class TestAsyncInitialConnect:
             raw_elements=b"",
             elements=(
                 CompositionElement(0, (0x1000, 0x1300), ()),
-                CompositionElement(0, (0x1303,), ()),
+                CompositionElement(0, (0x1306,), ()),
             ),
         )
         device.send_config_model_app_bind = AsyncMock(return_value=True)
@@ -287,7 +287,7 @@ class TestAsyncInitialConnect:
 
         await coord.async_initial_connect()
 
-        device.send_config_model_app_bind.assert_awaited_once_with(0x00B1, 0, 0x1303)
+        device.send_config_model_app_bind.assert_awaited_once_with(0x00B1, 0, 0x1306)
         assert coord._sig_light_ctl_binding_repaired is True
         await coord.async_stop()
 

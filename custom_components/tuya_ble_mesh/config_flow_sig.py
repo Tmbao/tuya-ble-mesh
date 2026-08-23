@@ -36,6 +36,7 @@ _UNICAST_DEVICE_DEFAULT = 0x00B0
 _MODEL_GENERIC_ONOFF_SERVER = 0x1000
 _MODEL_LIGHT_LIGHTNESS_SERVER = 0x1300
 _MODEL_LIGHT_CTL_SERVER = 0x1303
+_MODEL_LIGHT_CTL_TEMPERATURE_SERVER = 0x1306
 # Seconds to wait for device to reboot as Proxy Service after provisioning
 _POST_PROV_REBOOT_DELAY = 6.0
 
@@ -184,7 +185,13 @@ async def run_provision(
         await asyncio.sleep(0.5)
         model_ids = [_MODEL_GENERIC_ONOFF_SERVER]
         if device_type == DEVICE_TYPE_SIG_LIGHT:
-            model_ids.extend([_MODEL_LIGHT_LIGHTNESS_SERVER, _MODEL_LIGHT_CTL_SERVER])
+            model_ids.extend(
+                [
+                    _MODEL_LIGHT_LIGHTNESS_SERVER,
+                    _MODEL_LIGHT_CTL_SERVER,
+                    _MODEL_LIGHT_CTL_TEMPERATURE_SERVER,
+                ]
+            )
         for model_id in model_ids:
             element_index = next(
                 (

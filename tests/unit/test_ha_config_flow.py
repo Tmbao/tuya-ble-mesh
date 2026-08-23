@@ -1222,7 +1222,7 @@ class TestRunProvision:
         mock_device.connect = AsyncMock()
         mock_device.disconnect = AsyncMock()
         mock_device.wait_for_composition_data = AsyncMock(
-            return_value=_mock_composition((0x1000, 0x1300), (0x1303,))
+            return_value=_mock_composition((0x1000, 0x1300), (0x1303, 0x1306))
         )
         mock_device.send_config_appkey_add = AsyncMock(return_value=True)
         mock_device.send_config_model_app_bind = AsyncMock(return_value=True)
@@ -1246,6 +1246,7 @@ class TestRunProvision:
             call(0x00B0, 0, 0x1000),
             call(0x00B0, 0, 0x1300),
             call(0x00B1, 0, 0x1303),
+            call(0x00B1, 0, 0x1306),
         ]
 
     @pytest.mark.asyncio
