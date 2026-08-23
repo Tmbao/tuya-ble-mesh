@@ -16,6 +16,13 @@ _ROOT = str(Path(__file__).resolve().parent.parent.parent)
 sys.path.insert(0, _ROOT)
 sys.path.insert(0, str(Path(_ROOT) / "custom_components" / "tuya_ble_mesh" / "lib"))
 
+from custom_components.tuya_ble_mesh.const import (  # noqa: E402
+    CONF_DEVICE_TYPE,
+    CONF_SIG_LIGHT_CTL_BINDING_VERSION,
+    CONF_UNICAST_TARGET,
+    DEVICE_TYPE_SIG_LIGHT,
+    SIG_LIGHT_CTL_BINDING_VERSION,
+)
 from custom_components.tuya_ble_mesh.coordinator import (  # noqa: E402
     _BACKOFF_MULTIPLIER,
     _DEBOUNCE_DELAY,
@@ -252,6 +259,71 @@ class TestAsyncInitialConnect:
             await coord.async_initial_connect()
 
         assert coord.state.available is False
+
+    @pytest.mark.asyncio
+    async def test_repairs_legacy_sig_light_ctl_binding(self) -> None:
+        from tuya_ble_mesh.sig_mesh_protocol import CompositionData, CompositionElement
+
+        device = _make_sig_mesh_device()
+        device.request_composition_data_and_wait.return_value = CompositionData(
+            cid=0x07D0,
+            pid=1,
+            vid=1,
+            crpl=10,
+            features=0,
+            raw_elements=b"",
+            elements=(
+                CompositionElement(0, (0x1000, 0x1300), ()),
+                CompositionElement(0, (0x1303,), ()),
+            ),
+        )
+        device.send_config_model_app_bind = AsyncMock(return_value=True)
+        entry = MagicMock()
+        entry.data = {
+            CONF_DEVICE_TYPE: DEVICE_TYPE_SIG_LIGHT,
+            CONF_UNICAST_TARGET: "00B0",
+        }
+        coord = TuyaBLEMeshCoordinator(device, entry=entry)
+
+        await coord.async_initial_connect()
+
+        device.send_config_model_app_bind.assert_awaited_once_with(0x00B1, 0, 0x1303)
+        assert coord._sig_light_ctl_binding_repaired is True
+        await coord.async_stop()
+
+    @pytest.mark.asyncio
+    async def test_ctl_binding_repair_failure_does_not_fail_setup(self) -> None:
+        device = _make_sig_mesh_device()
+        device.request_composition_data_and_wait.side_effect = TimeoutError
+        entry = MagicMock()
+        entry.data = {
+            CONF_DEVICE_TYPE: DEVICE_TYPE_SIG_LIGHT,
+            CONF_UNICAST_TARGET: "00B0",
+        }
+        coord = TuyaBLEMeshCoordinator(device, entry=entry)
+
+        await coord.async_initial_connect()
+
+        assert coord.state.available is True
+        assert coord._sig_light_ctl_binding_repaired is False
+        await coord.async_stop()
+
+    @pytest.mark.asyncio
+    async def test_skips_ctl_binding_repair_when_marker_is_current(self) -> None:
+        device = _make_sig_mesh_device()
+        device.send_config_model_app_bind = AsyncMock()
+        entry = MagicMock()
+        entry.data = {
+            CONF_DEVICE_TYPE: DEVICE_TYPE_SIG_LIGHT,
+            CONF_SIG_LIGHT_CTL_BINDING_VERSION: SIG_LIGHT_CTL_BINDING_VERSION,
+        }
+        coord = TuyaBLEMeshCoordinator(device, entry=entry)
+
+        await coord.async_initial_connect()
+
+        device.request_composition_data_and_wait.assert_not_awaited()
+        device.send_config_model_app_bind.assert_not_awaited()
+        await coord.async_stop()
 
 
 @pytest.mark.requires_ha

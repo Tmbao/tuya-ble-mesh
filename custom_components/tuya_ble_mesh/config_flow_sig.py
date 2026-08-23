@@ -18,12 +18,14 @@ if TYPE_CHECKING:
 from custom_components.tuya_ble_mesh.const import (
     CONF_BRIDGE_HOST,
     CONF_BRIDGE_PORT,
+    CONF_SIG_LIGHT_CTL_BINDING_VERSION,
     CONF_UNICAST_TARGET,
     DEFAULT_BRIDGE_PORT,
     DEFAULT_IV_INDEX,
     DEVICE_TYPE_SIG_BRIDGE_PLUG,
     DEVICE_TYPE_SIG_LIGHT,
     DEVICE_TYPE_SIG_PLUG,
+    SIG_LIGHT_CTL_BINDING_VERSION,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -273,6 +275,9 @@ async def async_step_sig_plug(flow: Any, user_input: dict[str, Any] | None) -> F
         else:
             await flow.async_set_unique_id(mac)
             flow._abort_if_unique_id_configured()
+            extra_data: dict[str, Any] = {}
+            if device_type == DEVICE_TYPE_SIG_LIGHT:
+                extra_data[CONF_SIG_LIGHT_CTL_BINDING_VERSION] = SIG_LIGHT_CTL_BINDING_VERSION
             return flow._finalize_entry(
                 mac=mac,
                 device_type=device_type,
@@ -282,6 +287,7 @@ async def async_step_sig_plug(flow: Any, user_input: dict[str, Any] | None) -> F
                 net_key=net_key_hex,
                 dev_key=dev_key_hex,
                 app_key=app_key_hex,
+                **extra_data,
             )
     return flow.async_show_form(
         step_id="sig_plug",

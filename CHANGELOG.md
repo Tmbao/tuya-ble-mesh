@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Legacy SIG light colour-temperature control** — repair a missing Light CTL
+  Server AppKey binding once during startup, without resetting or re-pairing the
+  bulb. New SIG light entries record the completed binding during provisioning.
 - **Segmented SIG Mesh response decryption** — reconstruct the full 24-bit SeqAuth from
   each segment's network sequence and 13-bit SeqZero before building the upper transport
   nonce. Devices with sequence numbers above `0x1FFF` can now return composition data and

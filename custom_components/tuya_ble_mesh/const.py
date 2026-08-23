@@ -46,6 +46,11 @@ CONF_NET_KEY = "net_key"
 CONF_DEV_KEY = "dev_key"
 CONF_APP_KEY = "app_key"
 
+# Post-provisioning repair markers.  Existing entries created before a repair
+# was introduced omit the marker and are repaired once during startup.
+CONF_SIG_LIGHT_CTL_BINDING_VERSION = "sig_light_ctl_binding_version"
+SIG_LIGHT_CTL_BINDING_VERSION = 1
+
 DEVICE_TYPE_SIG_BRIDGE_PLUG = "sig_bridge_plug"
 DEVICE_TYPE_TELINK_BRIDGE_LIGHT = "telink_bridge_light"
 

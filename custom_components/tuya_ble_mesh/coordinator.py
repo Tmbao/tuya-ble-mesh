@@ -23,6 +23,13 @@ from custom_components.tuya_ble_mesh.connection_manager import (
     ConnectionManager,
     ConnectionStatistics,
 )
+from custom_components.tuya_ble_mesh.const import (
+    CONF_DEVICE_TYPE,
+    CONF_SIG_LIGHT_CTL_BINDING_VERSION,
+    CONF_UNICAST_TARGET,
+    DEVICE_TYPE_SIG_LIGHT,
+    SIG_LIGHT_CTL_BINDING_VERSION,
+)
 from custom_components.tuya_ble_mesh.device_capabilities import DeviceCapabilities
 from custom_components.tuya_ble_mesh.error_classifier import ErrorClass
 
@@ -48,6 +55,7 @@ _DEBOUNCE_DELAY = 1.5  # PLAT-754: backward-compat alias for connection_manager.
 _STALENESS_THRESHOLD_SECONDS = 300  # 5 minutes
 _STALENESS_CHECK_INTERVAL = 60  # Check every minute
 _MESH_PROBE_TIMEOUT = 5.0
+_MODEL_LIGHT_CTL_SERVER = 0x1303
 # Backward-compat aliases — sourced from connection_manager, re-exported for tests
 _BACKOFF_MULTIPLIER: float = 2.0
 _BRIDGE_INITIAL_BACKOFF: float = 3.0
@@ -149,6 +157,11 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             on_state_update=self._handle_conn_state_update,
         )
         self._staleness_task: asyncio.Task[None] | None = None
+        self._sig_light_ctl_binding_repaired = bool(
+            entry is not None
+            and entry.data.get(CONF_SIG_LIGHT_CTL_BINDING_VERSION, 0)
+            >= SIG_LIGHT_CTL_BINDING_VERSION
+        )
 
     # --- Explicit delegation to ConnectionManager (no magic methods) ---
 
@@ -588,6 +601,80 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
         await self._conn_mgr.async_disconnect()
         self._conn_mgr.schedule_reconnect()
 
+    async def _ensure_sig_light_ctl_binding(self) -> None:
+        """Repair a missing Light CTL AppKey binding on legacy light entries.
+
+        Early SIG-light entries could be provisioned before Light CTL model
+        binding was reliable.  Generic OnOff and Light Lightness then work,
+        while colour-temperature commands are silently ignored.  Model App
+        Bind is idempotent, so legacy entries can be repaired without resetting
+        or re-provisioning the bulb.
+        """
+        if self._sig_light_ctl_binding_repaired or self._entry is None:
+            return
+        if self._entry.data.get(CONF_DEVICE_TYPE) != DEVICE_TYPE_SIG_LIGHT:
+            return
+
+        device = cast("SIGMeshDevice", self._device)
+        try:
+            composition = await device.request_composition_data_and_wait(
+                timeout=_MESH_PROBE_TIMEOUT
+            )
+            element_index = next(
+                (
+                    index
+                    for index, element in enumerate(composition.elements)
+                    if _MODEL_LIGHT_CTL_SERVER in element.sig_models
+                ),
+                None,
+            )
+            if element_index is None:
+                _LOGGER.warning(
+                    "Cannot repair colour temperature for %s: Light CTL Server "
+                    "model 0x%04X is absent from Composition Data",
+                    self._device.address,
+                    _MODEL_LIGHT_CTL_SERVER,
+                )
+                return
+
+            target_addr = int(self._entry.data.get(CONF_UNICAST_TARGET, "00B0"), 16)
+            element_addr = target_addr + element_index
+            bind_ok = await device.send_config_model_app_bind(
+                element_addr,
+                0,
+                _MODEL_LIGHT_CTL_SERVER,
+            )
+            if not bind_ok:
+                _LOGGER.warning(
+                    "Light CTL model binding repair returned non-success for %s",
+                    self._device.address,
+                )
+                return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Keep ON/OFF and brightness available when this optional migration
+            # cannot complete.  With no persisted marker it retries next setup.
+            _LOGGER.warning(
+                "Light CTL model binding repair failed for %s; will retry on next setup",
+                self._device.address,
+                exc_info=True,
+            )
+            return
+
+        self._sig_light_ctl_binding_repaired = True
+        if self._hass is not None:
+            data = {
+                **self._entry.data,
+                CONF_SIG_LIGHT_CTL_BINDING_VERSION: SIG_LIGHT_CTL_BINDING_VERSION,
+            }
+            self._hass.config_entries.async_update_entry(self._entry, data=data)
+        _LOGGER.info(
+            "Repaired Light CTL model binding for %s at element 0x%04X",
+            self._device.address,
+            element_addr,
+        )
+
     async def _async_update_data(self) -> None:
         return None
 
@@ -983,6 +1070,7 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
 
         # Connect and let exceptions propagate to async_setup_entry
         response_time = await self._conn_mgr.async_connect()
+        await self._ensure_sig_light_ctl_binding()
         self._state = replace(
             self._state,
             available=True,

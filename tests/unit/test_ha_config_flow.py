@@ -45,6 +45,7 @@ from custom_components.tuya_ble_mesh.const import (
     CONF_MESH_NAME,
     CONF_MESH_PASSWORD,
     CONF_NET_KEY,
+    CONF_SIG_LIGHT_CTL_BINDING_VERSION,
     CONF_UNICAST_OUR,
     CONF_UNICAST_TARGET,
     CONF_VENDOR_ID,
@@ -55,6 +56,7 @@ from custom_components.tuya_ble_mesh.const import (
     DEVICE_TYPE_SIG_PLUG,
     DEVICE_TYPE_TELINK_BRIDGE_LIGHT,
     DOMAIN,
+    SIG_LIGHT_CTL_BINDING_VERSION,
     SIG_MESH_FLEX_UUID,
     SIG_MESH_PROV_UUID,
     SIG_MESH_PROXY_UUID,
@@ -466,6 +468,24 @@ class TestSIGPlugStep:
         assert result["data"][CONF_UNICAST_TARGET] == "00B0"
         assert result["data"][CONF_UNICAST_OUR] == "0001"
         assert result["data"][CONF_IV_INDEX] == 0
+
+    @pytest.mark.asyncio
+    async def test_sig_light_entry_records_ctl_binding(self) -> None:
+        """A newly provisioned light does not run the legacy repair on startup."""
+        flow = _make_flow()
+        flow._discovery_info = {
+            "address": "AA:BB:CC:DD:EE:FF",
+            "name": "SIG Mesh Light FF",
+            "auto_device_type": DEVICE_TYPE_SIG_LIGHT,
+        }
+
+        with patch(
+            "custom_components.tuya_ble_mesh.config_flow_sig.run_provision",
+            new=AsyncMock(return_value=(_TEST_NET_KEY, _TEST_DEV_KEY, _TEST_APP_KEY)),
+        ):
+            result = await flow.async_step_sig_plug({})
+
+        assert result["data"][CONF_SIG_LIGHT_CTL_BINDING_VERSION] == (SIG_LIGHT_CTL_BINDING_VERSION)
 
     @pytest.mark.asyncio
     async def test_sig_plug_step_shows_form(self) -> None:
