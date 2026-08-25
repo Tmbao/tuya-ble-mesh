@@ -29,6 +29,8 @@ from custom_components.tuya_ble_mesh.light import (  # noqa: E402
     brightness_to_ha,
     color_temp_to_device,
     color_temp_to_ha,
+    sig_color_temp_to_device,
+    sig_color_temp_to_kelvin,
 )
 
 
@@ -116,6 +118,14 @@ class TestSIGLightCapabilities:
         assert light.supported_color_modes == {ColorMode.COLOR_TEMP}
         assert light.rgb_color is None
         assert light.supported_effects == []
+        assert light.min_color_temp_kelvin == 3000
+        assert light.max_color_temp_kelvin == 6500
+
+    def test_uses_kogan_advertised_temperature_range(self) -> None:
+        assert sig_color_temp_to_kelvin(0) == 3000
+        assert sig_color_temp_to_kelvin(127) == 6500
+        assert sig_color_temp_to_device(3000) == 0
+        assert sig_color_temp_to_device(6500) == 127
 
     def test_extra_state_attributes_use_public_coordinator(self) -> None:
         coordinator = make_mock_coordinator(brightness=42)
@@ -356,6 +366,16 @@ class TestLightActions:
         assert 0 <= args[0] <= 127  # device range
 
     @pytest.mark.asyncio
+    async def test_sig_turn_on_reaches_coolest_endpoint(self) -> None:
+        coord = make_mock_coordinator()
+        coord.capabilities.protocol = "SIG_Mesh"
+        light = TuyaBLEMeshLight(coord, "test_entry")
+
+        await _turn_on(light, color_temp_kelvin=6500)
+
+        coord.device.send_color_temp.assert_awaited_once_with(127)
+
+    @pytest.mark.asyncio
     async def test_turn_on_with_both(self) -> None:
         coord = make_mock_coordinator()
         light = TuyaBLEMeshLight(coord, "test_entry")
@@ -541,10 +561,11 @@ class TestTransitions:
     async def test_turn_on_with_transition_color_temp(self) -> None:
         """Transition sends multiple color_temp steps."""
         coord = make_mock_coordinator(color_temp=0)
+        coord.capabilities.protocol = "SIG_Mesh"
         light = TuyaBLEMeshLight(coord, "test_entry")
 
-        # 6535 K (coolest, ~153 mireds) -> device 127
-        await light.async_turn_on(color_temp_kelvin=6535, transition=0.2)
+        # 6500 K is the Kogan bulb's advertised coolest endpoint.
+        await light.async_turn_on(color_temp_kelvin=6500, transition=0.2)
         assert light._transition_task is not None
         await light._transition_task
 

@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Kogan SIG light CCT endpoint calibration** — expose the bulb's documented
+  3000–6500 K range in Home Assistant while mapping it across Tuya's full
+  800–20000 Light CTL wire range, allowing the cool-white channel to reach its
+  physical endpoint.
 - **SIG light colour-temperature control** — send temperature-only changes through
   the dedicated Light CTL Temperature Server and repair its AppKey binding once
   during startup, without resetting or re-pairing the bulb. New SIG light entries

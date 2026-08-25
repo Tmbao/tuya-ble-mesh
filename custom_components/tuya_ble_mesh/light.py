@@ -67,6 +67,12 @@ _SCENES_BY_NAME: dict[str, int] = {v: k for k, v in MESH_SCENES.items()}
 # Debounce window for coalescing rapid slider commands (e.g. brightness drag)
 _COMMAND_DEBOUNCE_INTERVAL = 0.05  # 50 ms
 
+# Kogan's SIG Mesh firmware uses the full Bluetooth/Tuya CTL wire range
+# (800..20000) for its normalised warm-to-cool actuator, while the product's
+# user-facing range is 3000..6500 K.
+SIG_COLOR_TEMP_MIN_KELVIN = 3000
+SIG_COLOR_TEMP_MAX_KELVIN = 6500
+
 
 def brightness_to_ha(device_value: int) -> int:
     """Convert device brightness (1-100) to HA brightness (1-255).
@@ -141,6 +147,28 @@ def color_temp_to_device(mired_value: int) -> int:
         - (clamped - HA_MIRED_MIN)
         * (DEVICE_COLOR_TEMP_MAX - DEVICE_COLOR_TEMP_MIN)
         / (HA_MIRED_MAX - HA_MIRED_MIN)
+    )
+
+
+def sig_color_temp_to_kelvin(device_value: int) -> int:
+    """Convert a normalised SIG device value to the bulb's advertised kelvin range."""
+    clamped = max(DEVICE_COLOR_TEMP_MIN, min(device_value, DEVICE_COLOR_TEMP_MAX))
+    return round(
+        SIG_COLOR_TEMP_MIN_KELVIN
+        + (clamped - DEVICE_COLOR_TEMP_MIN)
+        * (SIG_COLOR_TEMP_MAX_KELVIN - SIG_COLOR_TEMP_MIN_KELVIN)
+        / (DEVICE_COLOR_TEMP_MAX - DEVICE_COLOR_TEMP_MIN)
+    )
+
+
+def sig_color_temp_to_device(kelvin: int) -> int:
+    """Convert the bulb's advertised kelvin range to a normalised SIG device value."""
+    clamped = max(SIG_COLOR_TEMP_MIN_KELVIN, min(kelvin, SIG_COLOR_TEMP_MAX_KELVIN))
+    return round(
+        DEVICE_COLOR_TEMP_MIN
+        + (clamped - SIG_COLOR_TEMP_MIN_KELVIN)
+        * (DEVICE_COLOR_TEMP_MAX - DEVICE_COLOR_TEMP_MIN)
+        / (SIG_COLOR_TEMP_MAX_KELVIN - SIG_COLOR_TEMP_MIN_KELVIN)
     )
 
 
@@ -285,6 +313,8 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
         self._is_sig_light = coordinator.capabilities.protocol == "SIG_Mesh"
         if self._is_sig_light:
             self._attr_supported_features = LightEntityFeature.TRANSITION
+            self._attr_min_color_temp_kelvin = SIG_COLOR_TEMP_MIN_KELVIN
+            self._attr_max_color_temp_kelvin = SIG_COLOR_TEMP_MAX_KELVIN
         self._transition_task: asyncio.Task[None] | None = None
         self._pending_command_task: asyncio.Task[None] | None = None
         # PLAT-756: Semaphore to serialize light transitions and prevent race conditions
@@ -309,6 +339,8 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
         """Return the current color temperature in kelvin."""
         if not self.coordinator.state.is_on:
             return None
+        if self._is_sig_light:
+            return sig_color_temp_to_kelvin(self.coordinator.state.color_temp)
         mired = color_temp_to_ha(self.coordinator.state.color_temp)
         return round(1_000_000 / mired)
 
@@ -410,7 +442,13 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
 
         if transition is not None and transition > 0 and has_target:
             target_bright = brightness_to_device(brightness) if brightness is not None else None
-            target_temp = color_temp_to_device(color_temp) if color_temp is not None else None
+            target_temp = (
+                sig_color_temp_to_device(color_temp_kelvin)
+                if self._is_sig_light and color_temp_kelvin is not None
+                else color_temp_to_device(color_temp)
+                if color_temp is not None
+                else None
+            )
             self._transition_task = asyncio.create_task(
                 self._run_transition(target_bright, target_temp, transition, target_rgb=rgb_color)
             )
@@ -420,7 +458,13 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
         # Debounce: schedule command after short window so rapid slider
         # moves cancel the previous pending command and only the latest fires.
         self._pending_command_task = asyncio.create_task(
-            self._debounced_send_turn_on(brightness, color_temp, rgb_color, has_target)
+            self._debounced_send_turn_on(
+                brightness,
+                color_temp,
+                rgb_color,
+                has_target,
+                color_temp_kelvin=color_temp_kelvin,
+            )
         )
         self._pending_command_task.add_done_callback(
             lambda t: t.exception() if not t.cancelled() else None
@@ -432,6 +476,8 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
         color_temp: int | None,
         rgb_color: tuple[int, int, int] | None,
         has_target: bool,
+        *,
+        color_temp_kelvin: int | None,
     ) -> None:
         """Send turn-on command after debounce interval.
 
@@ -445,6 +491,7 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
             color_temp: Color temp in mireds, or None.
             rgb_color: RGB tuple, or None.
             has_target: True if any parameter was specified.
+            color_temp_kelvin: HA color temperature in kelvin, or None.
         """
         await asyncio.sleep(_COMMAND_DEBOUNCE_INTERVAL)
         self._pending_command_task = None
@@ -464,7 +511,11 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
             if color_temp is not None:
                 if self.coordinator.state.mode == 1:
                     await device.send_light_mode(0)
-                device_temp = color_temp_to_device(color_temp)
+                device_temp = (
+                    sig_color_temp_to_device(color_temp_kelvin)
+                    if self._is_sig_light and color_temp_kelvin is not None
+                    else color_temp_to_device(color_temp)
+                )
                 await device.send_color_temp(device_temp)
                 _LOGGER.debug("Set color temp: HA %d mireds -> device %d", color_temp, device_temp)
 

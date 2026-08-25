@@ -365,7 +365,7 @@ class TestDispatchPayloadUnlocked:
         callback.assert_called_once()
         status = callback.call_args.args[0]
         assert 49 <= status.white_brightness <= 51
-        assert status.white_temp == round((4000 - 2700) * 127 / 3800)
+        assert status.white_temp == round((4000 - 800) * 127 / 19200)
 
 
 # ---------------------------------------------------------------------------

@@ -26,6 +26,8 @@ from tuya_ble_mesh.sig_mesh_protocol import (
     OP_LIGHT_CTL_STATUS,
     OP_LIGHT_CTL_TEMPERATURE_STATUS,
     OP_LIGHT_LIGHTNESS_STATUS,
+    SIG_CTL_TEMPERATURE_MAX,
+    SIG_CTL_TEMPERATURE_MIN,
     CompositionData,
     SIGMeshLightStatus,
     decrypt_access_payload,
@@ -432,7 +434,17 @@ class SIGMeshDeviceSegmentsMixin:
             if self._lightness_actual == 0
             else round(1 + (self._lightness_actual - 1) * 99 / 65534)
         )
-        temperature = round(max(0, min(self._ctl_temperature_kelvin - 2700, 3800)) * 127 / 3800)
+        temperature = round(
+            max(
+                0,
+                min(
+                    self._ctl_temperature_kelvin - SIG_CTL_TEMPERATURE_MIN,
+                    SIG_CTL_TEMPERATURE_MAX - SIG_CTL_TEMPERATURE_MIN,
+                ),
+            )
+            * 127
+            / (SIG_CTL_TEMPERATURE_MAX - SIG_CTL_TEMPERATURE_MIN)
+        )
         status = SIGMeshLightStatus(
             white_brightness=brightness,
             white_temp=temperature,

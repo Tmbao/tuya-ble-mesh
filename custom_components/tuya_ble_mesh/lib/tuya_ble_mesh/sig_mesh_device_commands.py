@@ -36,6 +36,8 @@ from tuya_ble_mesh.sig_mesh_device_segments import (
 )
 from tuya_ble_mesh.sig_mesh_protocol import (
     SEG_DATA_SIZE,
+    SIG_CTL_TEMPERATURE_MAX,
+    SIG_CTL_TEMPERATURE_MIN,
     config_appkey_add,
     config_composition_get,
     config_model_app_bind,
@@ -291,7 +293,10 @@ class SIGMeshDeviceCommandsMixin:
     async def send_color_temp(self, temp: int) -> None:
         """Set SIG Light CTL temperature from the integration's 0..127 scale."""
         clamped = max(0, min(temp, 127))
-        kelvin = round(2700 + clamped * (6500 - 2700) / 127)
+        kelvin = round(
+            SIG_CTL_TEMPERATURE_MIN
+            + clamped * (SIG_CTL_TEMPERATURE_MAX - SIG_CTL_TEMPERATURE_MIN) / 127
+        )
         access_payload = light_ctl_temperature_set(kelvin, self._tid)
         self._tid = (self._tid + 1) & 0xFF
         await self._send_light_access(access_payload, "Light CTL Temperature Set")

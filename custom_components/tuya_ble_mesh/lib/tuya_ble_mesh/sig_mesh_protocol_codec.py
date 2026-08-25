@@ -70,6 +70,8 @@ OP_GENERIC_ONOFF_SET = 0x8202
 OP_GENERIC_ONOFF_STATUS = 0x8204
 
 # --- Light Lightness and Light CTL model opcodes (Mesh Model 6.1/6.2) ---
+SIG_CTL_TEMPERATURE_MIN = 800
+SIG_CTL_TEMPERATURE_MAX = 20000
 OP_LIGHT_LIGHTNESS_SET = 0x824C
 OP_LIGHT_LIGHTNESS_STATUS = 0x824E
 OP_LIGHT_CTL_SET = 0x825E
@@ -245,8 +247,11 @@ def light_ctl_set(
     if not 0 <= lightness <= 0xFFFF:
         msg = f"Lightness must be 0..65535, got {lightness}"
         raise ProtocolError(msg)
-    if not 800 <= temperature <= 20000:
-        msg = f"CTL temperature must be 800..20000 K, got {temperature}"
+    if not SIG_CTL_TEMPERATURE_MIN <= temperature <= SIG_CTL_TEMPERATURE_MAX:
+        msg = (
+            f"CTL temperature must be {SIG_CTL_TEMPERATURE_MIN}.."
+            f"{SIG_CTL_TEMPERATURE_MAX}, got {temperature}"
+        )
         raise ProtocolError(msg)
     if not -32768 <= delta_uv <= 32767:
         msg = f"delta_uv must be -32768..32767, got {delta_uv}"
@@ -262,8 +267,11 @@ def light_ctl_temperature_set(
     delta_uv: int = 0,
 ) -> bytes:
     """Light CTL Temperature Set for temperature in kelvin and delta UV."""
-    if not 800 <= temperature <= 20000:
-        msg = f"CTL temperature must be 800..20000 K, got {temperature}"
+    if not SIG_CTL_TEMPERATURE_MIN <= temperature <= SIG_CTL_TEMPERATURE_MAX:
+        msg = (
+            f"CTL temperature must be {SIG_CTL_TEMPERATURE_MIN}.."
+            f"{SIG_CTL_TEMPERATURE_MAX}, got {temperature}"
+        )
         raise ProtocolError(msg)
     if not -32768 <= delta_uv <= 32767:
         msg = f"delta_uv must be -32768..32767, got {delta_uv}"

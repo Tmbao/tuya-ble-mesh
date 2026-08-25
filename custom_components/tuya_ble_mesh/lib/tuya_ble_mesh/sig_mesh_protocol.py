@@ -76,6 +76,8 @@ from tuya_ble_mesh.sig_mesh_protocol_codec import (  # noqa: F401  — re-export
     PROXY_TYPE_MASK,
     PROXY_TYPE_NETWORK,
     SEG_DATA_SIZE,
+    SIG_CTL_TEMPERATURE_MAX,
+    SIG_CTL_TEMPERATURE_MIN,
     TUYA_CMD_DP_DATA,
     TUYA_CMD_TIMESTAMP_SYNC,
     TUYA_VENDOR_OPCODE,

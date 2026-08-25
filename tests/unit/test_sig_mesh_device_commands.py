@@ -250,10 +250,23 @@ class TestSendLightCommands:
             await dev.send_color_temp(127)
 
         send.assert_awaited_once_with(
-            b"\x82\x64\x64\x19\x00\x00\x00",
+            b"\x82\x64\x20\x4e\x00\x00\x00",
             "Light CTL Temperature Set",
         )
-        assert dev._ctl_temperature_kelvin == 6500
+        assert dev._ctl_temperature_kelvin == 20000
+
+    @pytest.mark.asyncio
+    async def test_warmest_color_temp_uses_full_ctl_wire_range(self) -> None:
+        dev = _make_device()
+
+        with patch.object(dev, "_send_light_access", new_callable=AsyncMock) as send:
+            await dev.send_color_temp(0)
+
+        send.assert_awaited_once_with(
+            b"\x82\x64\x20\x03\x00\x00\x00",
+            "Light CTL Temperature Set",
+        )
+        assert dev._ctl_temperature_kelvin == 800
 
     @pytest.mark.asyncio
     async def test_light_commands_require_connection(self) -> None:
