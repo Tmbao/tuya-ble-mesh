@@ -42,8 +42,11 @@ from tuya_ble_mesh.sig_mesh_protocol import (
     config_composition_get,
     config_model_app_bind,
     encrypt_network_pdu,
+    generic_onoff_get,
     generic_onoff_set,
+    light_ctl_temperature_get,
     light_ctl_temperature_set,
+    light_lightness_get,
     light_lightness_set,
     make_access_segmented,
     make_access_unsegmented,
@@ -87,8 +90,8 @@ class SIGMeshDeviceCommandsMixin:
     _correlation_id: int
     _segment_lock: asyncio.Lock
     _pending_responses: dict[tuple[int, int], asyncio.Future[bytes]]
-    _lightness_actual: int
-    _ctl_temperature_kelvin: int
+    _lightness_actual: int | None
+    _ctl_temperature_kelvin: int | None
 
     async def _next_seq(self) -> int:
         raise NotImplementedError
@@ -288,7 +291,6 @@ class SIGMeshDeviceCommandsMixin:
         access_payload = light_lightness_set(actual, self._tid)
         self._tid = (self._tid + 1) & 0xFF
         await self._send_light_access(access_payload, "Light Lightness Set")
-        self._lightness_actual = actual
 
     async def send_color_temp(self, temp: int) -> None:
         """Set SIG Light CTL temperature from the integration's 0..127 scale."""
@@ -300,7 +302,16 @@ class SIGMeshDeviceCommandsMixin:
         access_payload = light_ctl_temperature_set(kelvin, self._tid)
         self._tid = (self._tid + 1) & 0xFF
         await self._send_light_access(access_payload, "Light CTL Temperature Set")
-        self._ctl_temperature_kelvin = kelvin
+
+    async def request_light_state(self) -> None:
+        """Read brightness, temperature and power after setup or reconnection.
+
+        These GET messages leave the bulb unchanged. Responses are delivered
+        through the normal status callbacks, including while the bulb is off.
+        """
+        await self._send_light_access(light_lightness_get(), "Light Lightness Get")
+        await self._send_light_access(light_ctl_temperature_get(), "Light CTL Temperature Get")
+        await self._send_light_access(generic_onoff_get(), "Generic OnOff Get")
 
     async def request_composition_data(self) -> None:
         """Send Config Composition Data Get to retrieve device info.

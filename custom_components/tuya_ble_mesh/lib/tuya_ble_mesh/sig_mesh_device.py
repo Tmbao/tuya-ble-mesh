@@ -194,8 +194,8 @@ class SIGMeshDevice(SIGMeshDeviceCommandsMixin, SIGMeshDeviceSegmentsMixin):  # 
         self._composition_callbacks: list[CompositionCallback] = []
         self._disconnect_callbacks: list[DisconnectCallback] = []
         self._sequence_callbacks: list[SequenceCallback] = []
-        self._lightness_actual = 0xFFFF
-        self._ctl_temperature_kelvin = 4000
+        self._lightness_actual: int | None = None
+        self._ctl_temperature_kelvin: int | None = None
 
         # Composition Data and firmware version
         self._composition: CompositionData | None = None

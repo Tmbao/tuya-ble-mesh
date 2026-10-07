@@ -321,14 +321,18 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
         self._transition_lock = asyncio.Lock()
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Return True if the light is on."""
+        if self._is_sig_light and "is_on" not in self.coordinator.state.last_confirmed_state:
+            return None
         return self.coordinator.state.is_on
 
     @property
     def brightness(self) -> int | None:
         """Return the current brightness (HA 1-255)."""
         if not self.coordinator.state.is_on:
+            return None
+        if self._is_sig_light and "brightness" not in self.coordinator.state.last_confirmed_state:
             return None
         if self.coordinator.state.mode == 1:
             return self.coordinator.state.color_brightness
@@ -340,6 +344,8 @@ class TuyaBLEMeshLight(TuyaBLEMeshEntity, LightEntity):
         if not self.coordinator.state.is_on:
             return None
         if self._is_sig_light:
+            if "color_temp" not in self.coordinator.state.last_confirmed_state:
+                return None
             return sig_color_temp_to_kelvin(self.coordinator.state.color_temp)
         mired = color_temp_to_ha(self.coordinator.state.color_temp)
         return round(1_000_000 / mired)

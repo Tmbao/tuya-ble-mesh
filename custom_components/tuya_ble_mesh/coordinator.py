@@ -18,6 +18,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Union, cast
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from tuya_ble_mesh.sig_mesh_protocol import SIGMeshLightStatus
 
 from custom_components.tuya_ble_mesh.connection_manager import (
     ConnectionManager,
@@ -678,6 +679,19 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
     async def _async_update_data(self) -> None:
         return None
 
+    async def _request_sig_light_state(self) -> None:
+        """Refresh actual bulb state after setup/reconnect without changing it."""
+        if self._entry is None or self._entry.data.get(CONF_DEVICE_TYPE) != DEVICE_TYPE_SIG_LIGHT:
+            return
+        try:
+            await cast("SIGMeshDevice", self._device).request_light_state()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            _LOGGER.warning(
+                "Could not request light state for %s", self._device.address, exc_info=True
+            )
+
     # --- Properties (forwarded from ConnectionManager) ---
 
     @property
@@ -778,6 +792,7 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             degraded_reason=None,
         )
         self.start_rssi_polling()
+        self._create_background_task(self._request_sig_light_state(), "refresh_light_state")
         self._dispatch_update()
 
     def _handle_conn_state_update(self) -> None:
@@ -824,18 +839,26 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
     def _on_onoff_update(self, on: bool) -> None:
         was_available = self._state.available
         changed = self._state.is_on != on
+        newly_confirmed = "is_on" not in self._state.last_confirmed_state
         now = time.time()
         self._state = self._make_notify_state(
-            now, is_on=on, last_confirmed_state=MappingProxyType({"is_on": on})
+            now,
+            is_on=on,
+            last_confirmed_state=MappingProxyType(
+                {**self._state.last_confirmed_state, "is_on": on}
+            ),
         )
         self._conn_mgr.backoff = _INITIAL_BACKOFF
         if changed:
             self._conn_mgr.record_state_change()
         self._maybe_persist_seq()
-        if changed or not was_available:
+        if changed or newly_confirmed or not was_available:
             self._dispatch_update()
 
-    def _on_status_update(self, status: StatusResponse) -> None:
+    def _on_status_update(self, status: StatusResponse | SIGMeshLightStatus) -> None:
+        if isinstance(status, SIGMeshLightStatus):
+            self._on_sig_light_status_update(status)
+            return
         was_available = self._state.available
         now = time.time()
         changed = (
@@ -877,6 +900,30 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
             self._conn_mgr.record_state_change()
         self._maybe_persist_seq()
         if changed or not was_available:
+            self._dispatch_update()
+
+    def _on_sig_light_status_update(self, status: SIGMeshLightStatus) -> None:
+        """Merge partial SIG responses without fabricating missing fields."""
+        updates: dict[str, Any] = {}
+        if status.white_brightness is not None:
+            updates["brightness"] = status.white_brightness
+            updates["is_on"] = status.white_brightness > 0
+        if status.white_temp is not None:
+            updates["color_temp"] = status.white_temp
+        if not updates:
+            return
+        changed = any(getattr(self._state, key) != value for key, value in updates.items())
+        newly_confirmed = any(key not in self._state.last_confirmed_state for key in updates)
+        was_available = self._state.available
+        confirmed = MappingProxyType({**self._state.last_confirmed_state, **updates})
+        self._state = self._make_notify_state(
+            time.time(), **updates, last_confirmed_state=confirmed
+        )
+        self._conn_mgr.backoff = _INITIAL_BACKOFF
+        if changed:
+            self._conn_mgr.record_state_change()
+        self._maybe_persist_seq()
+        if changed or newly_confirmed or not was_available:
             self._dispatch_update()
 
     def _on_vendor_update(self, opcode: int, params: bytes) -> None:
@@ -1071,6 +1118,7 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
         # Connect and let exceptions propagate to async_setup_entry
         response_time = await self._conn_mgr.async_connect()
         await self._ensure_sig_light_ctl_binding()
+        await self._request_sig_light_state()
         self._state = replace(
             self._state,
             available=True,

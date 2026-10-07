@@ -73,10 +73,12 @@ OP_GENERIC_ONOFF_STATUS = 0x8204
 SIG_CTL_TEMPERATURE_MIN = 800
 SIG_CTL_TEMPERATURE_MAX = 20000
 OP_LIGHT_LIGHTNESS_SET = 0x824C
+OP_LIGHT_LIGHTNESS_GET = 0x824B
 OP_LIGHT_LIGHTNESS_STATUS = 0x824E
 OP_LIGHT_CTL_SET = 0x825E
 OP_LIGHT_CTL_STATUS = 0x8260
 OP_LIGHT_CTL_TEMPERATURE_SET = 0x8264
+OP_LIGHT_CTL_TEMPERATURE_GET = 0x8261
 OP_LIGHT_CTL_TEMPERATURE_STATUS = 0x8266
 
 # --- Tuya Vendor Model (CID 0x07D0) ---
@@ -237,6 +239,16 @@ def light_lightness_set(lightness: int, tid: int = 0) -> bytes:
     return struct.pack(">H", OP_LIGHT_LIGHTNESS_SET) + struct.pack("<HB", lightness, tid & 0xFF)
 
 
+def light_lightness_get() -> bytes:
+    """Read the current Light Lightness Actual state without changing it."""
+    return struct.pack(">H", OP_LIGHT_LIGHTNESS_GET)
+
+
+def light_ctl_temperature_get() -> bytes:
+    """Read the current CTL temperature without changing it."""
+    return struct.pack(">H", OP_LIGHT_CTL_TEMPERATURE_GET)
+
+
 def light_ctl_set(
     lightness: int,
     temperature: int,
@@ -337,11 +349,11 @@ class TuyaVendorFrame:
 
 @dataclass(frozen=True, slots=True)
 class SIGMeshLightStatus:
-    """SIG light state in the common status shape used by the coordinator."""
+    """SIG light status; None marks a field absent from this mesh response."""
 
     mode: int = 0
-    white_brightness: int = 0
-    white_temp: int = 0
+    white_brightness: int | None = None
+    white_temp: int | None = None
     red: int = 0
     green: int = 0
     blue: int = 0

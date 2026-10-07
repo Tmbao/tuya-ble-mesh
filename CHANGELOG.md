@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **SIG light state after reload/reconnect** — read actual power, brightness and
+  colour temperature from the bulb, retain confirmed temperature across partial
+  brightness/power responses, and show unknown until the first real response
+  instead of a fabricated warm-white state. State reads do not change the bulb.
 - **Kogan SIG light CCT endpoint calibration** — expose the bulb's documented
   3000–6500 K range in Home Assistant while mapping it across Tuya's full
   800–20000 Light CTL wire range, allowing the cool-white channel to reach its

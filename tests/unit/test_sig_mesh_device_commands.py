@@ -237,10 +237,12 @@ class TestSendLightCommands:
     async def test_brightness_writes_lightness_command(self) -> None:
         dev = _make_device()
 
-        await dev.send_brightness(50)
+        with patch.object(dev, "_send_light_access", new_callable=AsyncMock) as send:
+            await dev.send_brightness(50)
 
-        dev._client.write_gatt_char.assert_called_once()
-        assert dev._lightness_actual == round(1 + 49 * 65534 / 99)
+        send.assert_awaited_once_with(b"\x82\x4c\xb5\x7e\x00", "Light Lightness Set")
+        # A successful GATT write is not a confirmed device state.
+        assert dev._lightness_actual is None
 
     @pytest.mark.asyncio
     async def test_color_temp_writes_ctl_temperature_command(self) -> None:
@@ -253,7 +255,7 @@ class TestSendLightCommands:
             b"\x82\x64\x20\x4e\x00\x00\x00",
             "Light CTL Temperature Set",
         )
-        assert dev._ctl_temperature_kelvin == 20000
+        assert dev._ctl_temperature_kelvin is None
 
     @pytest.mark.asyncio
     async def test_warmest_color_temp_uses_full_ctl_wire_range(self) -> None:
@@ -266,7 +268,23 @@ class TestSendLightCommands:
             b"\x82\x64\x20\x03\x00\x00\x00",
             "Light CTL Temperature Set",
         )
-        assert dev._ctl_temperature_kelvin == 800
+        assert dev._ctl_temperature_kelvin is None
+
+    @pytest.mark.asyncio
+    async def test_state_refresh_only_reads_the_bulb(self) -> None:
+        from unittest.mock import call
+
+        dev = _make_device()
+        with patch.object(dev, "_send_light_access", new_callable=AsyncMock) as send:
+            await dev.request_light_state()
+
+        assert send.await_args_list == [
+            call(b"\x82\x4b", "Light Lightness Get"),
+            call(b"\x82\x61", "Light CTL Temperature Get"),
+            call(b"\x82\x01", "Generic OnOff Get"),
+        ]
+        assert dev._ctl_temperature_kelvin is None
+        assert dev._lightness_actual is None
 
     @pytest.mark.asyncio
     async def test_light_commands_require_connection(self) -> None:

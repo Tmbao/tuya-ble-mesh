@@ -174,6 +174,88 @@ class TestStatusUpdate:
 
 
 @pytest.mark.requires_ha
+class TestSIGLightStateRecovery:
+    """Reproduce lost CCT state with real SIG notifications and light properties."""
+
+    @pytest.mark.asyncio
+    async def test_partial_responses_preserve_cool_white(self) -> None:
+        from tuya_ble_mesh.sig_mesh_device import SIGMeshDevice
+
+        from custom_components.tuya_ble_mesh.light import TuyaBLEMeshLight
+
+        device = SIGMeshDevice("DC:23:4D:2B:BC:53", 0x00B0, 0x0001, MagicMock())
+        coord = TuyaBLEMeshCoordinator(device)
+        device.register_status_callback(coord._on_status_update)
+        device.register_onoff_callback(coord._on_onoff_update)
+        light = TuyaBLEMeshLight(coord, "entry")
+
+        assert light.is_on is None
+        assert light.color_temp_kelvin is None
+        await device._dispatch_access_payload_unlocked(0x00B0, 0x8204, b"\x01")
+        assert light.is_on is True
+        assert light.brightness is None
+        assert light.color_temp_kelvin is None
+
+        await device._dispatch_access_payload_unlocked(0x00B0, 0x824E, b"\xff\xff")
+        assert light.color_temp_kelvin is None
+        await device._dispatch_access_payload_unlocked(0x00B0, 0x8266, b"\x20\x4e\x00\x00")
+        assert light.color_temp_kelvin == 6500
+
+        await device._dispatch_access_payload_unlocked(0x00B0, 0x824E, b"\x00\x80")
+        assert light.color_temp_kelvin == 6500
+        await device._dispatch_access_payload_unlocked(0x00B0, 0x8204, b"\x00")
+        await device._dispatch_access_payload_unlocked(0x00B0, 0x8204, b"\x01")
+        assert light.color_temp_kelvin == 6500
+        assert coord.state.last_confirmed_state["color_temp"] == 127
+
+    def test_temperature_only_response_preserves_off_state(self) -> None:
+        from tuya_ble_mesh.sig_mesh_protocol import SIGMeshLightStatus
+
+        coord = TuyaBLEMeshCoordinator(make_mock_device())
+        coord._on_onoff_update(False)
+        coord._on_status_update(SIGMeshLightStatus(white_temp=127))
+
+        assert coord.state.is_on is False
+        assert coord.state.brightness == 0
+        assert coord.state.color_temp == 127
+        assert "brightness" not in coord.state.last_confirmed_state
+
+    def test_first_off_response_publishes_confirmed_state(self) -> None:
+        coord = TuyaBLEMeshCoordinator(make_mock_device())
+        coord._state = dc_replace(coord.state, available=True)
+        listener = MagicMock()
+        coord.add_listener(listener)
+
+        coord._on_onoff_update(False)
+
+        listener.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_startup_and_reconnect_read_current_light_state(self) -> None:
+        from tuya_ble_mesh.sig_mesh_device import SIGMeshDevice
+
+        device = SIGMeshDevice("DC:23:4D:2B:BC:53", 0x00B0, 0x0001, MagicMock())
+        device.connect = AsyncMock()
+        device.request_light_state = AsyncMock()
+        entry = MagicMock()
+        entry.data = {
+            CONF_DEVICE_TYPE: DEVICE_TYPE_SIG_LIGHT,
+            CONF_SIG_LIGHT_CTL_BINDING_VERSION: SIG_LIGHT_CTL_BINDING_VERSION,
+        }
+        coord = TuyaBLEMeshCoordinator(device, entry=entry)
+        try:
+            await coord.async_initial_connect()
+            device.request_light_state.assert_awaited_once()
+
+            device.request_light_state.reset_mock()
+            coord._handle_reconnected(0.1)
+            await asyncio.sleep(0)
+            device.request_light_state.assert_awaited_once()
+        finally:
+            await coord.async_stop()
+
+
+@pytest.mark.requires_ha
 class TestListeners:
     """Test listener registration."""
 

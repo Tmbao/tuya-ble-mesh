@@ -367,6 +367,40 @@ class TestDispatchPayloadUnlocked:
         assert 49 <= status.white_brightness <= 51
         assert status.white_temp == round((4000 - 800) * 127 / 19200)
 
+    @pytest.mark.asyncio
+    async def test_brightness_response_does_not_invent_temperature(self) -> None:
+        dev = _make_device()
+        callback = MagicMock()
+        dev.register_status_callback(callback)
+
+        await dev._dispatch_access_payload_unlocked(0x0001, 0x824E, b"\xff\xff")
+
+        status = callback.call_args.args[0]
+        assert status.white_brightness == 100
+        assert status.white_temp is None
+
+    @pytest.mark.asyncio
+    async def test_temperature_response_does_not_invent_power_or_brightness(self) -> None:
+        dev = _make_device()
+        callback = MagicMock()
+        dev.register_status_callback(callback)
+
+        await dev._dispatch_access_payload_unlocked(0x0001, 0x8266, b"\x20\x4e\x00\x00")
+
+        status = callback.call_args.args[0]
+        assert status.white_temp == 127
+        assert status.white_brightness is None
+
+    @pytest.mark.asyncio
+    async def test_malformed_temperature_response_is_ignored(self) -> None:
+        dev = _make_device()
+        callback = MagicMock()
+        dev.register_status_callback(callback)
+
+        await dev._dispatch_access_payload_unlocked(0x0001, 0x8266, b"\x20\x4e")
+
+        callback.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Callback exception handling

@@ -97,8 +97,8 @@ class SIGMeshDeviceSegmentsMixin:
     _composition: CompositionData | None
     _composition_event: asyncio.Event
     _firmware_version: str | None
-    _lightness_actual: int
-    _ctl_temperature_kelvin: int
+    _lightness_actual: int | None
+    _ctl_temperature_kelvin: int | None
 
     def _log_notify_exception(self, task: asyncio.Task[None]) -> None:
         """Log exceptions from notify processing tasks.
@@ -394,14 +394,14 @@ class SIGMeshDeviceSegmentsMixin:
                     _LOGGER.warning("OnOff callback error", exc_info=True)
         elif opcode == OP_LIGHT_LIGHTNESS_STATUS and len(params) >= 2:
             self._lightness_actual = int.from_bytes(params[:2], "little")
-            self._dispatch_light_status(src)
+            self._dispatch_light_status(src, temperature_reported=False)
         elif opcode == OP_LIGHT_CTL_STATUS and len(params) >= 4:
             self._lightness_actual = int.from_bytes(params[:2], "little")
             self._ctl_temperature_kelvin = int.from_bytes(params[2:4], "little")
             self._dispatch_light_status(src)
-        elif opcode == OP_LIGHT_CTL_TEMPERATURE_STATUS and len(params) >= 2:
+        elif opcode == OP_LIGHT_CTL_TEMPERATURE_STATUS and len(params) >= 4:
             self._ctl_temperature_kelvin = int.from_bytes(params[:2], "little")
-            self._dispatch_light_status(src)
+            self._dispatch_light_status(src, brightness_reported=False)
         elif opcode == _OPCODE_COMPOSITION_STATUS:
             self._handle_composition_data(params)
         elif opcode > 0xFFFF:
@@ -427,33 +427,43 @@ class SIGMeshDeviceSegmentsMixin:
                 src,
             )
 
-    def _dispatch_light_status(self, src: int) -> None:
-        """Convert SIG model values and notify coordinator-compatible callbacks."""
-        brightness = (
-            0
-            if self._lightness_actual == 0
-            else round(1 + (self._lightness_actual - 1) * 99 / 65534)
-        )
-        temperature = round(
-            max(
-                0,
-                min(
-                    self._ctl_temperature_kelvin - SIG_CTL_TEMPERATURE_MIN,
-                    SIG_CTL_TEMPERATURE_MAX - SIG_CTL_TEMPERATURE_MIN,
-                ),
+    def _dispatch_light_status(
+        self,
+        src: int,
+        *,
+        brightness_reported: bool = True,
+        temperature_reported: bool = True,
+    ) -> None:
+        """Publish only the fields actually present in this SIG model response."""
+        brightness = None
+        if brightness_reported and self._lightness_actual is not None:
+            brightness = (
+                0
+                if self._lightness_actual == 0
+                else round(1 + (self._lightness_actual - 1) * 99 / 65534)
             )
-            * 127
-            / (SIG_CTL_TEMPERATURE_MAX - SIG_CTL_TEMPERATURE_MIN)
-        )
+        temperature = None
+        if temperature_reported and self._ctl_temperature_kelvin is not None:
+            temperature = round(
+                max(
+                    0,
+                    min(
+                        self._ctl_temperature_kelvin - SIG_CTL_TEMPERATURE_MIN,
+                        SIG_CTL_TEMPERATURE_MAX - SIG_CTL_TEMPERATURE_MIN,
+                    ),
+                )
+                * 127
+                / (SIG_CTL_TEMPERATURE_MAX - SIG_CTL_TEMPERATURE_MIN)
+            )
         status = SIGMeshLightStatus(
             white_brightness=brightness,
             white_temp=temperature,
         )
         _LOGGER.info(
-            "SIG light status from 0x%04X: brightness=%d temperature=%dK",
+            "SIG light status from 0x%04X: brightness=%s temperature=%s (CTL wire value)",
             src,
             brightness,
-            self._ctl_temperature_kelvin,
+            self._ctl_temperature_kelvin if temperature_reported else None,
         )
         for callback in list(self._status_callbacks):
             try:
