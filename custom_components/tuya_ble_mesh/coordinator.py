@@ -907,7 +907,8 @@ class TuyaBLEMeshCoordinator(DataUpdateCoordinator[None]):  # type: ignore[misc]
         updates: dict[str, Any] = {}
         if status.white_brightness is not None:
             updates["brightness"] = status.white_brightness
-            updates["is_on"] = status.white_brightness > 0
+            # Tuya retains its configured brightness while Generic OnOff is
+            # OFF. Only an actual OnOff Status establishes the power state.
         if status.white_temp is not None:
             updates["color_temp"] = status.white_temp
         if not updates:

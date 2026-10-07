@@ -220,6 +220,25 @@ class TestSIGLightStateRecovery:
         assert coord.state.color_temp == 127
         assert "brightness" not in coord.state.last_confirmed_state
 
+    def test_saved_brightness_response_preserves_off_state(self) -> None:
+        from tuya_ble_mesh.sig_mesh_protocol import SIGMeshLightStatus
+
+        coord = TuyaBLEMeshCoordinator(make_mock_device())
+        coord._on_onoff_update(False)
+        coord._on_status_update(SIGMeshLightStatus(white_brightness=83))
+
+        assert coord.state.is_on is False
+        assert coord.state.brightness == 83
+        assert coord.state.last_confirmed_state["is_on"] is False
+
+    def test_brightness_response_does_not_establish_unknown_power(self) -> None:
+        from tuya_ble_mesh.sig_mesh_protocol import SIGMeshLightStatus
+
+        coord = TuyaBLEMeshCoordinator(make_mock_device())
+        coord._on_status_update(SIGMeshLightStatus(white_brightness=100))
+
+        assert "is_on" not in coord.state.last_confirmed_state
+
     def test_first_off_response_publishes_confirmed_state(self) -> None:
         coord = TuyaBLEMeshCoordinator(make_mock_device())
         coord._state = dc_replace(coord.state, available=True)
